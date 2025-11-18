@@ -3,11 +3,7 @@ package com.work.nonce.demo.config;
 import com.work.nonce.core.NonceComponent;
 import com.work.nonce.core.config.NonceConfig;
 import com.work.nonce.core.execution.NonceExecutionTemplate;
-import com.work.nonce.core.lock.RedisLockManager;
-import com.work.nonce.core.repository.NonceRepository;
 import com.work.nonce.core.service.NonceService;
-import com.work.nonce.core.support.InMemoryNonceRepository;
-import com.work.nonce.core.support.InMemoryRedisLockManager;
 import com.work.nonce.demo.chain.ChainClient;
 import com.work.nonce.demo.chain.MockChainClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -16,24 +12,21 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * 将核心组件装配为 Spring Bean，方便通过依赖注入复用。
- * 若以后需要接入真实的 Redis/Postgres，只需替换对应 Bean。
+ * 生产环境使用 PostgreSQL + Redis 实现。
  */
 @Configuration
 @EnableConfigurationProperties(NonceProperties.class)
 public class NonceComponentConfiguration {
 
-    @Bean
-    public NonceRepository nonceRepository() {
-        return new InMemoryNonceRepository();
-    }
+    // PostgresNonceRepository 和 RedisDistributedLockManager 通过 @Repository 和 @Component 自动扫描
+    // 不需要手动创建 Bean，Spring 会自动注入
 
-    @Bean
-    public RedisLockManager redisLockManager() {
-        return new InMemoryRedisLockManager();
-    }
-
+    /**
+     * ChainClient 实现（业务方需要替换为自己的实现）
+     */
     @Bean
     public ChainClient chainClient() {
+        // 生产环境应该替换为真实的链客户端实现
         return new MockChainClient();
     }
 
@@ -47,12 +40,7 @@ public class NonceComponentConfiguration {
         );
     }
 
-    @Bean
-    public NonceService nonceService(NonceRepository repository,
-                                     RedisLockManager redisLockManager,
-                                     NonceConfig nonceConfig) {
-        return new NonceService(repository, redisLockManager, nonceConfig);
-    }
+    // NonceService 通过 @Service 自动扫描，不需要手动创建 Bean
 
     @Bean
     public NonceExecutionTemplate nonceExecutionTemplate(NonceService nonceService) {
