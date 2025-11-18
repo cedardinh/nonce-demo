@@ -7,7 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 
 /**
- * Submitter nonce 状态表实体类
+ * Submitter n once 状态表实体类
  */
 @TableName("submitter_nonce_state")
 public class SubmitterNonceStateEntity {
