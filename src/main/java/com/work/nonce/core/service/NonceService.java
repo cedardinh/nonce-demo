@@ -1,11 +1,11 @@
 package com.work.nonce.core.service;
 
 import com.work.nonce.core.config.NonceConfig;
-import com.work.nonce.core.exception.NonceException;
 import com.work.nonce.core.lock.RedisLockManager;
 import com.work.nonce.core.model.NonceAllocation;
 import com.work.nonce.core.model.SubmitterNonceState;
 import com.work.nonce.core.repository.NonceRepository;
+import com.work.nonce.core.support.TransactionLockSynchronizer;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,12 +15,20 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.work.nonce.core.support.ValidationUtils.requireNonEmpty;
+import static com.work.nonce.core.support.ValidationUtils.requireNonNegative;
+
 /**
  * 负责"如何为某个 submitter 分配正确的 nonce"。
  * 这里的实现遵循 README 所述流程：Redis 锁 + Postgres 事务 + 空洞复用。
+ * 
+ * 事务边界：所有数据库操作都在事务中执行，确保数据一致性
+ * 锁管理：Redis锁通过事务同步机制在事务提交后释放，避免并发问题
  */
 @Service
 public class NonceService {
+
+    private static final int TRANSACTION_TIMEOUT_SECONDS = 5;
 
     private final NonceRepository nonceRepository;
     private final RedisLockManager redisLockManager;
@@ -35,117 +43,113 @@ public class NonceService {
     }
 
     /**
-     * 为 submitter 分配一个安全的 nonce。方法内部包含：
-     * 1. 可选的 Redis 锁，用来减少热点 submitter 的 DB 行锁竞争；
-     * 2. 在事务语义下锁定 submitter 状态、回收过期 RESERVED、复用空洞或生成新号；
-     * 3. 将最终结果以 RESERVED 状态返回。
+     * 为 submitter 分配一个安全的 nonce。
+     * 
+     * 流程：
+     * 1. 可选的 Redis 锁，用来减少热点 submitter 的 DB 行锁竞争
+     * 2. 在事务语义下锁定 submitter 状态、回收过期 RESERVED、复用空洞或生成新号
+     * 3. 将最终结果以 RESERVED 状态返回
      * 
      * 注意：此方法必须在事务中执行，确保数据一致性
+     * Redis锁会在事务提交后自动释放
      */
-    @Transactional(isolation = Isolation.READ_COMMITTED, timeout = 5)
+    @Transactional(isolation = Isolation.READ_COMMITTED, timeout = TRANSACTION_TIMEOUT_SECONDS)
     public NonceAllocation allocate(String submitter) {
-        // 参数验证
-        if (submitter == null || submitter.trim().isEmpty()) {
-            throw new IllegalArgumentException("submitter 不能为空");
-        }
+        requireNonEmpty(submitter, "submitter");
 
-        // 生成锁持有者标识（包含机器标识和线程ID，便于追踪）
         String lockOwner = generateLockOwner();
-        boolean locked = false;
         
+        // 如果启用Redis，使用事务同步机制管理锁
         if (config.isRedisEnabled()) {
-            locked = tryRedisLock(submitter, lockOwner);
+            return TransactionLockSynchronizer.executeWithLock(
+                redisLockManager,
+                submitter,
+                lockOwner,
+                config.getLockTtl(),
+                config.isDegradeOnRedisFailure(),
+                () -> doAllocate(submitter, lockOwner)
+            );
+        } else {
+            return doAllocate(submitter, lockOwner);
         }
-        
-        try {
+    }
+    
+    /**
+     * 执行实际的分配逻辑
+     */
+    private NonceAllocation doAllocate(String submitter, String lockOwner) {
             // 在事务内锁定 submitter 状态行
             SubmitterNonceState state = nonceRepository.lockAndLoadState(submitter);
             
             // 回收过期的 RESERVED 状态
             nonceRepository.recycleExpiredReservations(submitter, config.getReservedTimeout());
 
-            // 查找可复用的空洞
-            Optional<NonceAllocation> reusable = nonceRepository.findOldestRecyclable(submitter);
-            long targetNonce;
-            
-            if (reusable.isPresent()) {
-                targetNonce = reusable.get().getNonce();
-            } else {
-                // 没有可复用的，使用新的 nonce
-                targetNonce = state.getNextLocalNonce();
-                state.setNextLocalNonce(targetNonce + 1);
-                state.setUpdatedAt(Instant.now());
-                nonceRepository.updateState(state);
-            }
-            
-            // 预留 nonce（使用唯一约束防止重复分配）
-            return nonceRepository.reserveNonce(submitter, targetNonce, lockOwner, config.getLockTtl());
-        } finally {
-            // Redis 锁在事务提交后释放（通过 TransactionSynchronizationManager）
-            // 但为了兼容性，这里先释放，生产环境建议使用事务同步机制
-            if (locked) {
-                redisLockManager.unlock(submitter, lockOwner);
-            }
-        }
+        // 查找可复用的空洞或生成新号
+        long targetNonce = findOrGenerateNonce(submitter, state);
+        
+        // 预留 nonce（使用唯一约束防止重复分配）
+        return nonceRepository.reserveNonce(submitter, targetNonce, lockOwner, config.getLockTtl());
     }
     
     /**
-     * 生成锁持有者标识
+     * 查找可复用的nonce或生成新的nonce
+     */
+    private long findOrGenerateNonce(String submitter, SubmitterNonceState state) {
+            Optional<NonceAllocation> reusable = nonceRepository.findOldestRecyclable(submitter);
+            
+            if (reusable.isPresent()) {
+            return reusable.get().getNonce();
+        }
+        
+                // 没有可复用的，使用新的 nonce
+        long targetNonce = state.getNextLocalNonce();
+                state.setNextLocalNonce(targetNonce + 1);
+                state.setUpdatedAt(Instant.now());
+                nonceRepository.updateState(state);
+        
+        return targetNonce;
+    }
+    
+    /**
+     * 生成锁持有者标识（包含机器标识和线程ID，便于追踪和调试）
      */
     private String generateLockOwner() {
         try {
             String hostname = InetAddress.getLocalHost().getHostName();
-            return hostname + "-" + Thread.currentThread().getId() + "-" + UUID.randomUUID().toString();
+            return String.format("%s-%d-%s", hostname, Thread.currentThread().getId(), UUID.randomUUID());
         } catch (Exception e) {
-            return "unknown-" + Thread.currentThread().getId() + "-" + UUID.randomUUID().toString();
-        }
-    }
-
-    private boolean tryRedisLock(String submitter, String lockOwner) {
-        try {
-            boolean locked = redisLockManager.tryLock(submitter, lockOwner, config.getLockTtl());
-            if (!locked && !config.isDegradeOnRedisFailure()) {
-                throw new NonceException("Redis 加锁失败，且未开启降级");
-            }
-            return locked;
-        } catch (Exception ex) {
-            if (config.isDegradeOnRedisFailure()) {
-                return false;
-            }
-            throw new NonceException("Redis 加锁异常", ex);
+            return String.format("unknown-%d-%s", Thread.currentThread().getId(), UUID.randomUUID());
         }
     }
 
     /**
      * 标记 nonce 为已使用
-     * 注意：此方法必须在事务中执行
+     * 
+     * 注意：此方法必须在事务中执行，确保状态更新的原子性
      */
-    @Transactional(isolation = Isolation.READ_COMMITTED, timeout = 5)
+    @Transactional(isolation = Isolation.READ_COMMITTED, timeout = TRANSACTION_TIMEOUT_SECONDS)
     public void markUsed(String submitter, long nonce, String txHash) {
-        if (submitter == null || submitter.trim().isEmpty()) {
-            throw new IllegalArgumentException("submitter 不能为空");
-        }
-        if (txHash == null || txHash.trim().isEmpty()) {
-            throw new IllegalArgumentException("txHash 不能为空");
-        }
+        requireNonEmpty(submitter, "submitter");
+        requireNonEmpty(txHash, "txHash");
+        requireNonNegative(nonce, "nonce");
         
         nonceRepository.markUsed(submitter, nonce, txHash);
     }
 
     /**
      * 标记 nonce 为可回收
-     * 注意：此方法必须在事务中执行
+     * 
+     * 注意：此方法必须在事务中执行，确保状态更新的原子性
      */
-    @Transactional(isolation = Isolation.READ_COMMITTED, timeout = 5)
+    @Transactional(isolation = Isolation.READ_COMMITTED, timeout = TRANSACTION_TIMEOUT_SECONDS)
     public void markRecyclable(String submitter, long nonce, String reason) {
-        if (submitter == null || submitter.trim().isEmpty()) {
-            throw new IllegalArgumentException("submitter 不能为空");
-        }
-        if (reason == null) {
-            reason = "";
-        }
+        requireNonEmpty(submitter, "submitter");
+        requireNonNegative(nonce, "nonce");
         
-        nonceRepository.markRecyclable(submitter, nonce, reason);
+        // reason可以为空，但统一处理为null
+        String finalReason = (reason == null) ? "" : reason;
+        
+        nonceRepository.markRecyclable(submitter, nonce, finalReason);
     }
 }
 
