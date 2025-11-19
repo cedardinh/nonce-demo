@@ -13,13 +13,19 @@ import java.util.Objects;
  */
 public class NonceAllocation {
 
+    /** 持久化主键。 */
     private final long id;
+    /** submitter 唯一标识。 */
     private final String submitter;
+    /** 分配的 nonce 值。 */
     private final long nonce;
+    /** 当前状态（RESERVED/RECYCLABLE/USED）。 */
     private NonceAllocationStatus status;
+    /** 持有该 nonce 的锁 owner，RESERVED 时存在。 */
     private String lockOwner;
-    private Instant lockedUntil;
+    /** 成功上链后的 txHash。 */
     private String txHash;
+    /** 最近一次更新时间。 */
     private Instant updatedAt;
 
     public NonceAllocation(long id,
@@ -27,7 +33,6 @@ public class NonceAllocation {
                            long nonce,
                            NonceAllocationStatus status,
                            String lockOwner,
-                           Instant lockedUntil,
                            String txHash,
                            Instant updatedAt) {
         if (id <= 0) {
@@ -51,7 +56,6 @@ public class NonceAllocation {
         this.nonce = nonce;
         this.status = status;
         this.lockOwner = lockOwner;
-        this.lockedUntil = lockedUntil;
         this.txHash = txHash;
         this.updatedAt = updatedAt;
     }
@@ -85,14 +89,6 @@ public class NonceAllocation {
 
     public void setLockOwner(String lockOwner) {
         this.lockOwner = lockOwner;
-    }
-
-    public Instant getLockedUntil() {
-        return lockedUntil;
-    }
-
-    public void setLockedUntil(Instant lockedUntil) {
-        this.lockedUntil = lockedUntil;
     }
 
     public String getTxHash() {
@@ -135,7 +131,6 @@ public class NonceAllocation {
                 ", nonce=" + nonce +
                 ", status=" + status +
                 ", lockOwner='" + lockOwner + '\'' +
-                ", lockedUntil=" + lockedUntil +
                 ", txHash='" + txHash + '\'' +
                 ", updatedAt=" + updatedAt +
                 '}';

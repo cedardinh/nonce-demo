@@ -40,7 +40,7 @@ Client → Biz API → NonceExecutionTemplate
 | 表 | 关键字段 | 说明 |
 | --- | --- | --- |
 | `submitter_nonce_state` | `submitter`(PK), `last_chain_nonce`, `next_local_nonce`, `updated_at` | 每个 submitter 一行；`last_chain_nonce` 记录链上已确认连续到的最大 nonce；`next_local_nonce` 只在发新号时 +1。 |
-| `submitter_nonce_allocation` | `id`, `submitter`, `nonce`, `status`, `lock_owner`, `locked_until`, `tx_hash`, `updated_at` | 每个 nonce 的生命周期。`UNIQUE(submitter, nonce)` 防重号。`status` 建议只保留 3 种：`RESERVED`（占用待执行业务）、`USED`（同步业务及链上成功）、`RECYCLABLE`（可复用空位，包含所有失败/超时/放弃场景）。 |
+| `submitter_nonce_allocation` | `id`, `submitter`, `nonce`, `status`, `lock_owner`, `tx_hash`, `updated_at` | 每个 nonce 的生命周期。`UNIQUE(submitter, nonce)` 防重号。`status` 建议只保留 3 种：`RESERVED`（占用待执行业务）、`USED`（同步业务及链上成功）、`RECYCLABLE`（可复用空位，包含所有失败/超时/放弃场景）。 |
 
 迁移脚本位于 `src/main/resources/db/migration`，新增字段/索引按 Flyway 版本管理。
 
@@ -53,9 +53,9 @@ graph TD
     A[客户端调用\n提交 submitter] --> B[NonceService 分配]
     B --> C{Redis 加锁或降级}
     C -->|成功或降级| D[Postgres 事务\n锁定 submitter 状态]
-    D --> X[清理该 submitter\n过期 RESERVED 为 RECYCLABLE]
-    X --> E{是否存在可复用空洞}
-    E -->|是| F[复用空洞 nonce\n写入 RESERVED]
+    D --> X[根据链上最新 nonce\n确认 RESERVED / 释放资源]
+    X --> E{是否存在可复用 nonce}
+    E -->|是| F[复用该 nonce\n写入 RESERVED]
     E -->|否| G[使用 next_local_nonce\n写入 RESERVED 并自增]
     F --> H[提交事务]
     G --> H
@@ -114,7 +114,7 @@ graph TD
     - 使用 `RedisLockManager` 获取 per-submitters 分布式锁（失败自动降级）；
     - 在 Postgres 事务内：
       - 锁定 `submitter_nonce_state`；
-      - 清理当前 submitter 的过期 `RESERVED` → `RECYCLABLE`；
+      - 依据链上最新已确认的 nonce 对齐本地状态（将 `<=链上值` 的 `RESERVED` 标记为 `USED`，更新 `last_chain_nonce`）；
       - 优先取 `RECYCLABLE` 中的最小 nonce 复用，否则使用 `next_local_nonce` 并自增；
       - 插入/更新 allocation 为 `RESERVED`。
   - 不关心业务具体做什么，只关心 nonce 分配的正确性与并发控制。
@@ -122,6 +122,7 @@ graph TD
 - **基础设施层（组件内）**
   - `NonceRepository`：封装所有对 `submitter_nonce_state` 与 `submitter_nonce_allocation` 的 SQL 操作；
   - `RedisLockManager`：统一管理 `nonce:lock:{submitter}` 的加锁/解锁和降级逻辑；
+  - 链上查询：在 `NonceService` 内部可直接调用链上接口（示例为伪代码），将 `RESERVED → USED` 的纠偏交给链上最新 nonce。
 - **业务侧扩展**
   - `ChainClient` 等外围依赖由业务自行实现，并通过 handler 闭包或依赖注入使用；组件仅提供 submitter/nonce 上下文，不感知外部实现细节。
 

@@ -8,39 +8,21 @@ import java.time.Duration;
  */
 public class NonceConfig {
 
-    private final boolean redisEnabled;
+    /**
+     * 单次 Redis 锁持有的 TTL，避免死锁或节点宕机后锁无法释放。
+     */
     private final Duration lockTtl;
-    private final Duration reservedTimeout;
-    private final boolean degradeOnRedisFailure;
 
-    public NonceConfig(boolean redisEnabled,
-                       Duration lockTtl,
-                       Duration reservedTimeout,
-                       boolean degradeOnRedisFailure) {
-        this.redisEnabled = redisEnabled;
+    public NonceConfig(Duration lockTtl) {
         this.lockTtl = lockTtl;
-        this.reservedTimeout = reservedTimeout;
-        this.degradeOnRedisFailure = degradeOnRedisFailure;
     }
 
     public static NonceConfig defaultConfig() {
-        return new NonceConfig(true, Duration.ofSeconds(10), Duration.ofSeconds(30), true);
-    }
-
-    public boolean isRedisEnabled() {
-        return redisEnabled;
+        return new NonceConfig(Duration.ofSeconds(10));
     }
 
     public Duration getLockTtl() {
         return lockTtl;
-    }
-
-    public Duration getReservedTimeout() {
-        return reservedTimeout;
-    }
-
-    public boolean isDegradeOnRedisFailure() {
-        return degradeOnRedisFailure;
     }
 }
 

@@ -16,9 +16,13 @@ public class NonceExecutionResult<T> {
         FAIL
     }
 
+    /** 当前执行结果状态。 */
     private final Status status;
+    /** 成功场景下的链上 txHash。 */
     private final String txHash;
+    /** 失败场景下的原因描述。 */
     private final String reason;
+    /** 业务自定义的返回载荷。 */
     private final T payload;
 
     private NonceExecutionResult(Status status, String txHash, String reason, T payload) {

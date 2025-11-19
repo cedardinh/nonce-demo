@@ -26,7 +26,7 @@ public class NonceController {
 
     @PostMapping("/{submitter}")
     public ResponseEntity<SimpleNoncePayloadFF> allocateAndExecute(@PathVariable String submitter,
-                                                                   @Validated @RequestBody NonceRequest request) {
+                                                                                  @Validated @RequestBody NonceRequest request) {
         SimpleNoncePayloadFF response = nonceDemoService.refund(submitter, request.getPayload());
         return ResponseEntity.ok(response);
     }

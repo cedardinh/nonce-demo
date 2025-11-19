@@ -8,8 +8,11 @@ package com.work.nonce.demo.web.dto;
  */
 public class NonceResponse<T extends NonceResponsePayload> {
 
+    /** submitter 唯一标识。 */
     private final String submitter;
+    /** 返回给前端的 nonce 值。 */
     private final long nonce;
+    /** 业务自定义的 payload。 */
     private final T payload;
 
     private NonceResponse(String submitter, long nonce, T payload) {

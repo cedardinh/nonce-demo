@@ -12,25 +12,32 @@ import java.time.Instant;
 @TableName("submitter_nonce_allocation")
 public class NonceAllocationEntity {
 
+    /** 自增主键。 */
     @TableId(type = IdType.AUTO)
     private Long id;
     
+    /** submitter 唯一标识。 */
     private String submitter;
     
+    /** 分配的 nonce 值。 */
     private Long nonce;
     
+    /** 当前状态（RESERVED/RECYCLABLE/USED）。 */
     private String status;
     
+    /** 持有该 nonce 的锁 owner（RESERVED 时存在）。 */
     private String lockOwner;
     
-    private Instant lockedUntil;
-    
+    /** 成功上链后的 txHash。 */
     private String txHash;
     
+    /** 回收原因或备注。 */
     private String reason;
     
+    /** 最近一次更新时间。 */
     private Instant updatedAt;
     
+    /** 创建时间。 */
     private Instant createdAt;
 
     public NonceAllocationEntity() {
@@ -74,14 +81,6 @@ public class NonceAllocationEntity {
 
     public void setLockOwner(String lockOwner) {
         this.lockOwner = lockOwner;
-    }
-
-    public Instant getLockedUntil() {
-        return lockedUntil;
-    }
-
-    public void setLockedUntil(Instant lockedUntil) {
-        this.lockedUntil = lockedUntil;
     }
 
     public String getTxHash() {

@@ -3,8 +3,6 @@ package com.work.nonce.core.repository;
 import com.work.nonce.core.model.NonceAllocation;
 import com.work.nonce.core.model.SubmitterNonceState;
 
-import java.time.Duration;
-import java.util.List;
 import java.util.Optional;
 
 /**
@@ -23,21 +21,19 @@ public interface NonceRepository {
     void updateState(SubmitterNonceState state);
 
     /**
-     * 回收该 submitter 下超时未处理的 RESERVED。
-     *
-     * @return 被回收的 allocation 列表，便于记录日志。
+     * 将链上已确认的 nonce 之前的 RESERVED 记录标记为 USED。
      */
-    List<NonceAllocation> recycleExpiredReservations(String submitter, Duration reservedTimeout);
+    void confirmReservedWithChain(String submitter, long confirmedNonce);
 
     /**
-     * 查找最小的 RECYCLABLE 空洞，供复用。
+     * 查找最小的 RECYCLABLE nonce，供复用。
      */
     Optional<NonceAllocation> findOldestRecyclable(String submitter);
 
     /**
      * 将 nonce 标记为 RESERVED（可能是新建，也可能是复用）。
      */
-    NonceAllocation reserveNonce(String submitter, long nonce, String lockOwner, Duration lockTtl);
+    NonceAllocation reserveNonce(String submitter, long nonce, String lockOwner);
 
     /**
      * 成功执行业务后，标记 allocation 为 USED，并附加 txHash 等信息。
@@ -48,5 +44,7 @@ public interface NonceRepository {
      * 执行失败或放弃时，将 allocation 标记为 RECYCLABLE。
      */
     void markRecyclable(String submitter, long nonce, String reason);
+
+    void updateLastChainNonce(String submitter, long lastChainNonce);
 }
 

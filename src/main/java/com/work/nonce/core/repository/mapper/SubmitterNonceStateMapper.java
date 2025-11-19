@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.work.nonce.core.repository.entity.SubmitterNonceStateEntity;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.Instant;
 
@@ -31,5 +32,11 @@ public interface SubmitterNonceStateMapper extends BaseMapper<SubmitterNonceStat
                           @Param("nextLocalNonce") Long nextLocalNonce,
                           @Param("updatedAt") Instant updatedAt,
                           @Param("createdAt") Instant createdAt);
+
+    @Update("UPDATE submitter_nonce_state SET last_chain_nonce = GREATEST(COALESCE(last_chain_nonce, -1), #{lastChainNonce}), updated_at = #{updatedAt} " +
+            "WHERE submitter = #{submitter}")
+    int updateLastChainNonce(@Param("submitter") String submitter,
+                             @Param("lastChainNonce") Long lastChainNonce,
+                             @Param("updatedAt") Instant updatedAt);
 }
 

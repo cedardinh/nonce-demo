@@ -124,27 +124,27 @@ allocation.setLockedUntil(Instant.now().plus(lockTtl));
 **位置**: `NonceService.java:38-64`
 
 **问题描述**:
-- README 中明确要求 "**Redis 锁 + Postgres 事务 + 空洞复用**"，并且注释中多次提到“在事务语义下”，但当前仓库只提供了：
+- README 中明确要求 "**Redis 锁 + Postgres 事务 + nonce 复用**"，并且注释中多次提到“在事务语义下”，但当前仓库只提供了：
   - 一个不依赖数据库的 `NonceRepository` 接口；
   - 一个纯内存实现 `InMemoryNonceRepository`（没有真正的事务概念）。
 - 在当前代码结构中：
   - `NonceService.allocate()` 依次调用 `lockAndLoadState` → `recycleExpiredReservations` → `findOldestRecyclable` → `updateState` → `reserveNonce`；
   - 这些调用之间**既没有数据库事务边界**，也没有在 service 层做“整段操作的串行化”；
   - demo 中的 `InMemoryNonceRepository` 虽然在各方法内部用了 `synchronized (mutex(submitter))`，但它是“**细粒度、分散在多个方法中的锁**”，而不是“单个原子事务”。
-- 更重要的是：如果在生产环境中关闭 Redis 锁（`redisEnabled = false`）或发生 Redis 故障并开启降级（`degradeOnRedisFailure = true`），那么 **同一 submitter 的 `allocate` 调用可能在多线程下并发执行**，这时就只能依赖 `NonceRepository` 的事务语义来保证正确性。
+- 更重要的是：一旦 Redis 锁失效，**同一 submitter 的 `allocate` 调用可能在多线程下并发执行**，这时就只能依赖 `NonceRepository` 的事务语义来保证正确性。
 
 **影响**: 
 - 在当前内存实现下，尤其当 **Redis 锁关闭/降级** 时，存在这样的窗口：
   - 线程 A 和线程 B 同时调用 `allocate(submitter)`；
   - 二者先后调用 `lockAndLoadState`，各自拿到一个**相同快照**的 `SubmitterNonceState`（例如 `nextLocalNonce = 0`），但这是两个拷贝对象；
-  - 在没有可复用空洞的情况下，A、B 分别在自己的拷贝上做 `nextLocalNonce++`，然后各自调用 `updateState` 与 `reserveNonce`；
+  - 在没有可复用 nonce 的情况下，A、B 分别在自己的拷贝上做 `nextLocalNonce++`，然后各自调用 `updateState` 与 `reserveNonce`；
   - 由于 `updateState` 和 `reserveNonce` 之间没有统一的事务/锁保护，**很有可能出现同一个 nonce 被两个线程同时分配的情况**（两个线程同时以相同的 `targetNonce` 调用 `reserveNonce`）。
 - 换言之：当前设计**强依赖**未来的生产版 `NonceRepository` 能够在单事务内实现“锁定 submitter 行 + 唯一约束 + 正确的重试”，而 demo 的内存实现并不能体现这一点。
 
 **生产环境的补救方案（必须实现）**:
 - 为生产版 `NonceRepository` 制定硬性要求：
   - `lockAndLoadState` 必须以 `SELECT ... FOR UPDATE` 或等价语义，在事务内锁定该 submitter 的状态行；
-  - 在同一个数据库事务内完成“过期 RESERVED 回收 → 选择可复用空洞或新 nonce → 插入/更新 allocation 记录并标记为 RESERVED”；
+  - 在同一个数据库事务内完成“过期 RESERVED 回收 → 选择可复用 nonce 或新 nonce → 插入/更新 allocation 记录并标记为 RESERVED”；
   - 利用 `UNIQUE(submitter, nonce)` 约束防止重复分配，若违反唯一约束则重试分配逻辑。
 - 宿主应用需要在调用 `NonceService.allocate()` 的外层配置事务边界（如 Spring `@Transactional` 或手动事务管理），确保上述操作都处于同一事务中。
 - 对当前内存实现而言，如果要在单机多线程压测中更接近真实行为，可考虑：
@@ -454,7 +454,7 @@ String txHash = chainClient.sendTransaction(ctx.getSubmitter(), ctx.getNonce(), 
 
 **影响**: 
 - 重启后 nonce 可能重复
-- 丢失 RESERVED 状态导致 nonce 空洞
+- 丢失 RESERVED 状态导致 nonce 间隙
 - 不适合生产环境，尤其是在多实例部署、自动扩缩容、容器重启等场景下，会出现跨实例状态不一致、重复分配等严重问题
 
 **补救措施**:
@@ -1043,19 +1043,19 @@ public class PostgresNonceRepository implements NonceRepository {
     }
 
     // 其余接口方法的语义要求如下（实现时必须满足）：
-    // - recycleExpiredReservations(submitter, reservedTimeout):
-    //     将该 submitter 下 locked_until < now - reservedTimeout 的 RESERVED 记录批量更新为 RECYCLABLE，
-    //     清空 lock_owner/locked_until，更新 updated_at，并返回被回收的记录列表（用于日志/监控）。
+    // - confirmReservedWithChain(submitter, confirmedNonce):
+    //     将该 submitter 下 nonce <= confirmedNonce 且 status = RESERVED 的记录批量标记为 USED，
+    //     清空 lock_owner 并更新时间，确保本地状态与链上最新确认值对齐。
     // - findOldestRecyclable(submitter):
     //     查询 status = RECYCLABLE 且 nonce 最小的记录，使用 ORDER BY nonce ASC LIMIT 1，并走索引。
-    // - reserveNonce(submitter, nonce, lockOwner, lockTtl):
+    // - reserveNonce(submitter, nonce, lockOwner):
     //     使用 INSERT ... ON CONFLICT(submitter, nonce) DO UPDATE 语句，将指定 nonce 标记为 RESERVED，
-    //     设置 lock_owner/locked_until/updated_at，并返回最新记录；依赖数据库唯一约束避免重复号。
+    //     设置 lock_owner/updated_at，并返回最新记录；依赖数据库唯一约束避免重复号。
     // - markUsed(submitter, nonce, txHash):
-    //     将指定记录标记为 USED，写入 txHash，清空 lock_owner/locked_until，更新 updated_at；
+    //     将指定记录标记为 USED，写入 txHash，清空 lock_owner，更新 updated_at；
     //     若未找到记录应抛出异常，避免静默失败。
     // - markRecyclable(submitter, nonce, reason):
-    //     将指定记录标记为 RECYCLABLE，清空 txHash/lock_owner/locked_until，更新 updated_at；
+    //     将指定记录标记为 RECYCLABLE，清空 txHash/lock_owner，更新 updated_at；
     //     reason 可按需写入审计表/日志，但不影响主表状态。
 }
 ```

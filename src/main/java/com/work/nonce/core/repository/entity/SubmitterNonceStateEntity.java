@@ -12,15 +12,20 @@ import java.time.Instant;
 @TableName("submitter_nonce_state")
 public class SubmitterNonceStateEntity {
 
+    /** submitter 唯一标识，作为主键。 */
     @TableId(type = IdType.INPUT)
     private String submitter;
     
+    /** 链上已确认的最新 nonce（用于灾备对账）。 */
     private Long lastChainNonce;
     
+    /** 本地下一次可分配的 nonce。 */
     private Long nextLocalNonce;
     
+    /** 最近一次状态变更时间。 */
     private Instant updatedAt;
     
+    /** 创建时间。 */
     private Instant createdAt;
 
     public SubmitterNonceStateEntity() {

@@ -15,9 +15,13 @@ public class SubmitterNonceState {
     private static final long INITIAL_LAST_CHAIN_NONCE = -1L;
     private static final long INITIAL_NEXT_LOCAL_NONCE = 0L;
 
+    /** submitter 唯一标识，不可变。 */
     private final String submitter;
+    /** 链上已确认的最新 nonce。 */
     private long lastChainNonce;
+    /** 下一次可分配的本地 nonce。 */
     private long nextLocalNonce;
+    /** 最近一次更新时间。 */
     private Instant updatedAt;
 
     public SubmitterNonceState(String submitter, long lastChainNonce, long nextLocalNonce, Instant updatedAt) {

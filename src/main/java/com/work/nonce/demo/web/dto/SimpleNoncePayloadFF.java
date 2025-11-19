@@ -5,7 +5,9 @@ package com.work.nonce.demo.web.dto;
  */
 public class SimpleNoncePayloadFF implements NonceResponsePayload {
 
+    /** 模拟链上返回的 txHash。 */
     private final String txHash;
+    /** 回声字段，方便前端确认 payload。 */
     private final String payloadEcho;
 
     public SimpleNoncePayloadFF(String txHash, String payloadEcho) {

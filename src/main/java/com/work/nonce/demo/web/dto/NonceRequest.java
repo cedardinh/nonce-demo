@@ -7,6 +7,7 @@ import javax.validation.constraints.NotBlank;
  */
 public class NonceRequest {
 
+    /** 业务要上链的原始 payload。 */
     @NotBlank(message = "payload 不能为空")
     private String payload;
 

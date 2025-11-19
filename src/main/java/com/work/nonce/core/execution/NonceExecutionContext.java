@@ -9,8 +9,11 @@ import java.util.Map;
  */
 public class NonceExecutionContext {
 
+    /** submitter 唯一标识。 */
     private final String submitter;
+    /** 当前分配到的 nonce。 */
     private final long nonce;
+    /** 供业务附加上下文数据的字典。 */
     private final Map<String, Object> attributes = new HashMap<>();
 
     public NonceExecutionContext(String submitter, long nonce) {
