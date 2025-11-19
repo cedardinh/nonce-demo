@@ -22,7 +22,7 @@ public class NonceComponent {
     /**
      * 推荐用法：在 handler 中执行业务逻辑，模板自动根据执行结果处理状态。
      */
-    public NonceExecutionResult withNonce(String submitter, NonceExecutionHandler handler) {
+    public <T> NonceExecutionResult<T> withNonce(String submitter, NonceExecutionHandler<T> handler) {
         return executionTemplate.execute(submitter, handler);
     }
 

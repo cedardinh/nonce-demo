@@ -37,7 +37,7 @@ public class NonceExecutionTemplate {
      * @return 执行结果
      * @throws NonceException 如果handler返回null或执行过程中发生异常
      */
-    public NonceExecutionResult execute(String submitter, NonceExecutionHandler handler) {
+    public <T> NonceExecutionResult<T> execute(String submitter, NonceExecutionHandler<T> handler) {
         requireNonEmpty(submitter, "submitter");
         requireNonNull(handler, "handler");
         
@@ -48,7 +48,7 @@ public class NonceExecutionTemplate {
         NonceExecutionContext ctx = new NonceExecutionContext(submitter, allocation.getNonce());
             
             // 执行业务handler
-            NonceExecutionResult result = handler.handle(ctx);
+            NonceExecutionResult<T> result = handler.handle(ctx);
             validateResult(result);
             
             // 根据执行结果更新状态
@@ -77,13 +77,13 @@ public class NonceExecutionTemplate {
     /**
      * 校验执行结果
      */
-    private void validateResult(NonceExecutionResult result) {
+    private void validateResult(NonceExecutionResult<?> result) {
         if (result == null) {
             throw new NonceException("handler 返回结果不能为空");
         }
         
         // 校验SUCCESS状态必须提供txHash
-        if (result.getOutcome() == NonceExecutionResult.Outcome.SUCCESS) {
+        if (result.getStatus() == NonceExecutionResult.Status.SUCCESS) {
             if (result.getTxHash() == null || result.getTxHash().trim().isEmpty()) {
                 throw new NonceException("SUCCESS 状态必须提供 txHash");
             }
@@ -93,26 +93,21 @@ public class NonceExecutionTemplate {
     /**
      * 根据执行结果更新allocation状态
      */
-    private void updateAllocationStatus(String submitter, NonceAllocation allocation, NonceExecutionResult result) {
-        switch (result.getOutcome()) {
+    private void updateAllocationStatus(String submitter, NonceAllocation allocation, NonceExecutionResult<?> result) {
+        switch (result.getStatus()) {
             case SUCCESS:
                 // 业务成功，标记为已使用
                 nonceService.markUsed(submitter, allocation.getNonce(), result.getTxHash());
                 break;
                 
-            case NON_RETRYABLE_FAILURE:
-                // 不可重试的失败，回收nonce
-                String reason = result.getReason() != null ? result.getReason() : "non-retryable failure";
+            case FAIL:
+                // 失败，直接回收nonce
+                String reason = result.getReason() != null ? result.getReason() : "fail";
                 nonceService.markRecyclable(submitter, allocation.getNonce(), reason);
                 break;
                 
-            case RETRYABLE_FAILURE:
-                // 可重试的失败，保持RESERVED状态，由业务自行重试
-                // 不进行任何操作
-                break;
-                
             default:
-                throw new NonceException("未知的执行结果: " + result.getOutcome());
+                throw new NonceException("未知的执行结果: " + result.getStatus());
         }
     }
 }

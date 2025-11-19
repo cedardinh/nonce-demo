@@ -484,7 +484,7 @@ String txHash = chainClient.sendTransaction(ctx.getSubmitter(), ctx.getNonce(), 
   - 后续带着相同幂等键的重试请求，应直接返回已有结果，而不是重新分配 nonce 或重复调用链上。
 - 在对外 API 层（Controller/网关）：
   - 对明显的“重复提交”场景返回幂等成功（如 HTTP 200 + 业务码表示“已处理”），而不是 5xx；
-  - 将 `NonceExecutionResult` 的 Outcome 与幂等策略结合起来，清晰地区分“已成功”“失败可重试”“失败不可重试”。
+  - 将 `NonceExecutionResult` 的 Status 与幂等策略结合起来，清晰地区分“已成功”与“失败”。
 
 ---
 
@@ -759,26 +759,21 @@ public class NonceExecutionTemplate {
     private NonceExecutionResult processResult(String submitter, NonceAllocation allocation, 
                                                  NonceExecutionResult result) {
         try {
-            switch (result.getOutcome()) {
+            switch (result.getStatus()) {
                 case SUCCESS:
                     nonceService.markUsed(submitter, allocation.getNonce(), result.getTxHash());
                     log.info("Marked nonce {} as USED for submitter {}", 
                         allocation.getNonce(), submitter);
                     break;
                     
-                case NON_RETRYABLE_FAILURE:
+                case FAIL:
                     nonceService.markRecyclable(submitter, allocation.getNonce(), result.getReason());
                     log.warn("Marked nonce {} as RECYCLABLE for submitter {}, reason: {}", 
                         allocation.getNonce(), submitter, result.getReason());
                     break;
                     
-                case RETRYABLE_FAILURE:
-                    log.info("Keeping nonce {} as RESERVED for submitter {} due to retryable failure", 
-                        allocation.getNonce(), submitter);
-                    break;
-                    
                 default:
-                    throw new NonceException("Unknown outcome: " + result.getOutcome());
+                    throw new NonceException("Unknown status: " + result.getStatus());
             }
             return result;
             

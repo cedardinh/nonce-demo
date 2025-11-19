@@ -2,7 +2,6 @@ package com.work.nonce.demo.web;
 
 import com.work.nonce.demo.service.NonceDemoService;
 import com.work.nonce.demo.web.dto.NonceRequest;
-import com.work.nonce.demo.web.dto.NonceResponse;
 import com.work.nonce.demo.web.dto.SimpleNoncePayloadFF;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -26,9 +25,9 @@ public class NonceController {
     }
 
     @PostMapping("/{submitter}")
-    public ResponseEntity<NonceResponse<SimpleNoncePayloadFF>> allocateAndExecute(@PathVariable String submitter,
-                                                                                  @Validated @RequestBody NonceRequest request) {
-        NonceResponse<SimpleNoncePayloadFF> response = nonceDemoService.refund(submitter, request.getPayload());
+    public ResponseEntity<SimpleNoncePayloadFF> allocateAndExecute(@PathVariable String submitter,
+                                                                   @Validated @RequestBody NonceRequest request) {
+        SimpleNoncePayloadFF response = nonceDemoService.refund(submitter, request.getPayload());
         return ResponseEntity.ok(response);
     }
 }

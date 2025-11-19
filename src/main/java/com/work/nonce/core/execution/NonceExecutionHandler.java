@@ -5,12 +5,12 @@ package com.work.nonce.core.execution;
  * 若需要其他依赖，请通过外部注入或闭包方式引用，避免组件感知业务细节。
  */
 @FunctionalInterface
-public interface NonceExecutionHandler {
+public interface NonceExecutionHandler<T> {
 
     /**
      * @param ctx 组件提供的上下文
      * @return 执行结果，驱动模板在 finally 中更新 allocation 状态
      */
-    NonceExecutionResult handle(NonceExecutionContext ctx) throws Exception;
+    NonceExecutionResult<T> handle(NonceExecutionContext ctx) throws Exception;
 }
 

@@ -3,47 +3,49 @@ package com.work.nonce.core.execution;
 /**
  * handler 执行结果，用于指导模板如何更新 allocation 状态。
  */
-public class NonceExecutionResult {
+public class NonceExecutionResult<T> {
 
-    public enum Outcome {
+    public enum Status {
         /**
          * 业务和链上调用都成功。
          */
         SUCCESS,
         /**
-         * 可重试错误，保持 RESERVED，交由上层重试。
+         * 业务失败，不再重试，nonce 将被回收。
          */
-        RETRYABLE_FAILURE,
-        /**
-         * 不可重试错误，直接回收 nonce。
-         */
-        NON_RETRYABLE_FAILURE
+        FAIL
     }
 
-    private final Outcome outcome;
+    private final Status status;
     private final String txHash;
     private final String reason;
+    private final T payload;
 
-    private NonceExecutionResult(Outcome outcome, String txHash, String reason) {
-        this.outcome = outcome;
+    private NonceExecutionResult(Status status, String txHash, String reason, T payload) {
+        this.status = status;
         this.txHash = txHash;
         this.reason = reason;
+        this.payload = payload;
     }
 
-    public static NonceExecutionResult success(String txHash) {
-        return new NonceExecutionResult(Outcome.SUCCESS, txHash, null);
+    public static <T> NonceExecutionResult<T> success(String txHash, T payload) {
+        return new NonceExecutionResult<>(Status.SUCCESS, txHash, null, payload);
     }
 
-    public static NonceExecutionResult retryableFailure(String reason) {
-        return new NonceExecutionResult(Outcome.RETRYABLE_FAILURE, null, reason);
+    public static NonceExecutionResult<Void> success(String txHash) {
+        return success(txHash, null);
     }
 
-    public static NonceExecutionResult nonRetryableFailure(String reason) {
-        return new NonceExecutionResult(Outcome.NON_RETRYABLE_FAILURE, null, reason);
+    public static <T> NonceExecutionResult<T> fail(String reason, T payload) {
+        return new NonceExecutionResult<>(Status.FAIL, null, reason, payload);
     }
 
-    public Outcome getOutcome() {
-        return outcome;
+    public static NonceExecutionResult<Void> fail(String reason) {
+        return fail(reason, null);
+    }
+
+    public Status getStatus() {
+        return status;
     }
 
     public String getTxHash() {
@@ -52,6 +54,10 @@ public class NonceExecutionResult {
 
     public String getReason() {
         return reason;
+    }
+
+    public T getPayload() {
+        return payload;
     }
 }
 
