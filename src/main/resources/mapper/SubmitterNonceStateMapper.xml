@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.work.nonce.core.repository.mapper.SubmitterNonceStateMapper">
+
+    <resultMap id="SubmitterNonceStateMap" type="com.work.nonce.core.repository.entity.SubmitterNonceStateEntity">
+        <id property="submitter" column="submitter"/>
+        <result property="lastChainNonce" column="last_chain_nonce"/>
+        <result property="nextLocalNonce" column="next_local_nonce"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <sql id="StateColumns">
+        submitter, last_chain_nonce, next_local_nonce, updated_at, created_at
+    </sql>
+
+    <select id="lockAndLoadBySubmitter" resultMap="SubmitterNonceStateMap">
+        SELECT
+        <include refid="StateColumns"/>
+        FROM submitter_nonce_state
+        WHERE submitter = #{submitter}
+        FOR UPDATE
+    </select>
+
+    <insert id="insertIfNotExists">
+        INSERT INTO submitter_nonce_state(submitter, last_chain_nonce, next_local_nonce, updated_at, created_at)
+        VALUES(#{submitter}, #{lastChainNonce}, #{nextLocalNonce}, #{updatedAt}, #{createdAt})
+        ON CONFLICT(submitter) DO NOTHING
+    </insert>
+
+    <update id="updateLastChainNonce">
+        UPDATE submitter_nonce_state
+        SET last_chain_nonce = GREATEST(COALESCE(last_chain_nonce, -1), #{lastChainNonce}),
+            updated_at       = #{updatedAt}
+        WHERE submitter = #{submitter}
+    </update>
+
+</mapper>
+

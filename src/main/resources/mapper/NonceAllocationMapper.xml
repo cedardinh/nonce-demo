@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.work.nonce.core.repository.mapper.NonceAllocationMapper">
+
+    <resultMap id="NonceAllocationEntityMap" type="com.work.nonce.core.repository.entity.NonceAllocationEntity">
+        <id property="id" column="id"/>
+        <result property="submitter" column="submitter"/>
+        <result property="nonce" column="nonce"/>
+        <result property="status" column="status"/>
+        <result property="lockOwner" column="lock_owner"/>
+        <result property="txHash" column="tx_hash"/>
+        <result property="reason" column="reason"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, submitter, nonce, status, lock_owner, tx_hash, reason, updated_at, created_at
+    </sql>
+
+    <update id="markReservedAsUsedUpTo">
+        UPDATE submitter_nonce_allocation
+        SET status = 'USED',
+            lock_owner = NULL,
+            updated_at = #{now},
+            reason = '链上确认自动标记'
+        WHERE submitter = #{submitter}
+          AND status = 'RESERVED'
+          AND nonce &lt;= #{confirmedNonce}
+    </update>
+
+    <select id="findOldestRecyclable" resultMap="NonceAllocationEntityMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM submitter_nonce_allocation
+        WHERE submitter = #{submitter}
+          AND status = 'RECYCLABLE'
+        ORDER BY nonce ASC
+        LIMIT 1
+    </select>
+
+    <select id="findBySubmitterAndNonce" resultMap="NonceAllocationEntityMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM submitter_nonce_allocation
+        WHERE submitter = #{submitter}
+          AND nonce = #{nonce}
+    </select>
+
+    <insert id="reserveNonce">
+        INSERT INTO submitter_nonce_allocation(submitter, nonce, status, lock_owner, updated_at, created_at)
+        VALUES(#{submitter}, #{nonce}, 'RESERVED', #{lockOwner}, #{updatedAt}, #{createdAt})
+        ON CONFLICT(submitter, nonce)
+            DO UPDATE SET status = 'RESERVED',
+                          lock_owner = #{lockOwner},
+                          updated_at = #{updatedAt}
+        WHERE submitter_nonce_allocation.status != 'USED'
+    </insert>
+
+</mapper>
+

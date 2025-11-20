@@ -31,16 +31,16 @@ public class NonceComponent {
     /**
      * 低阶接口，允许业务先领取 nonce，再在合适的时机显式标记 USED/RECYCLABLE。
      */
-//    public NonceAllocation allocate(String submitter) {
-//        return nonceService.allocate(submitter);
-//    }
-//
-//    public void markUsed(String submitter, long nonce, String txHash) {
-//        nonceService.markUsed(submitter, nonce, txHash);
-//    }
-//
-//    public void markRecyclable(String submitter, long nonce, String reason) {
-//        nonceService.markRecyclable(submitter, nonce, reason);
-//    }
+    public NonceAllocation allocate(String submitter) {
+        return nonceService.allocate(submitter);
+    }
+
+    public void markUsed(String submitter, long nonce, String txHash) {
+        nonceService.markUsed(submitter, nonce, txHash);
+    }
+
+    public void markRecyclable(String submitter, long nonce, String reason) {
+        nonceService.markRecyclable(submitter, nonce, reason);
+    }
 }
 
