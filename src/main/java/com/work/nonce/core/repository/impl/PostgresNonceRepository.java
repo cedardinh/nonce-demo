@@ -9,7 +9,10 @@ import com.work.nonce.core.repository.entity.NonceAllocationEntity;
 import com.work.nonce.core.repository.entity.SubmitterNonceStateEntity;
 import com.work.nonce.core.repository.mapper.NonceAllocationMapper;
 import com.work.nonce.core.repository.mapper.SubmitterNonceStateMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -28,6 +31,7 @@ import static com.work.nonce.core.support.ValidationUtils.requireNonNull;
 @Repository
 public class PostgresNonceRepository implements NonceRepository {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(PostgresNonceRepository.class);
     private static final long INITIAL_LAST_CHAIN_NONCE = -1L;
     private static final long INITIAL_NEXT_LOCAL_NONCE = 0L;
     
@@ -80,6 +84,9 @@ public class PostgresNonceRepository implements NonceRepository {
         requireNonNull(state, "state");
         requireNonEmpty(state.getSubmitter(), "state.submitter");
         
+        // 断言：必须在事务中调用
+        assertInTransaction("updateState");
+        
         SubmitterNonceStateEntity entity = new SubmitterNonceStateEntity();
         entity.setSubmitter(state.getSubmitter());
         entity.setLastChainNonce(state.getLastChainNonce());
@@ -122,6 +129,9 @@ public class PostgresNonceRepository implements NonceRepository {
     public NonceAllocation reserveNonce(String submitter, long nonce, String lockOwner) {
         requireNonEmpty(submitter, "submitter");
         requireNonEmpty(lockOwner, "lockOwner");
+        
+        // 断言：必须在事务中调用
+        assertInTransaction("reserveNonce");
 
         Instant now = Instant.now();
         
@@ -156,6 +166,9 @@ public class PostgresNonceRepository implements NonceRepository {
     public void markUsed(String submitter, long nonce, String txHash) {
         requireNonEmpty(submitter, "submitter");
         requireNonEmpty(txHash, "txHash");
+        
+        // 断言：必须在事务中调用
+        assertInTransaction("markUsed");
 
         NonceAllocationEntity entity = allocationMapper.findBySubmitterAndNonce(submitter, nonce);
         if (entity == null) {
@@ -190,6 +203,9 @@ public class PostgresNonceRepository implements NonceRepository {
     @Override
     public void markRecyclable(String submitter, long nonce, String reason) {
         requireNonEmpty(submitter, "submitter");
+        
+        // 断言：必须在事务中调用
+        assertInTransaction("markRecyclable");
 
         NonceAllocationEntity entity = allocationMapper.findBySubmitterAndNonce(submitter, nonce);
         if (entity == null) {
@@ -249,6 +265,23 @@ public class PostgresNonceRepository implements NonceRepository {
         } catch (IllegalArgumentException e) {
             throw new NonceException("无效的 allocation 状态: " + entity.getStatus() + 
                                     " for " + entity.getSubmitter() + "#" + entity.getNonce(), e);
+        }
+    }
+    
+    /**
+     * 断言当前方法必须在事务中调用，防止误用导致并发问题。
+     * <p>注意：生产环境可以通过 JVM 参数 -ea 启用断言，或使用日志警告。</p>
+     */
+    private void assertInTransaction(String methodName) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            String errorMsg = String.format(
+                    "[CRITICAL] %s.%s() 必须在事务中调用，但当前没有活跃事务。这可能导致并发问题或数据不一致。",
+                    this.getClass().getSimpleName(), methodName);
+            LOGGER.error(errorMsg);
+            // 在开发/测试环境抛出异常，生产环境可以只记录日志
+            if (Boolean.parseBoolean(System.getProperty("nonce.strict.transaction.check", "true"))) {
+                throw new IllegalStateException(errorMsg);
+            }
         }
     }
 }

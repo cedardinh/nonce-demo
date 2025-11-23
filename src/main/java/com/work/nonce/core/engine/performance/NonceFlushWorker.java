@@ -63,18 +63,24 @@ public class NonceFlushWorker {
         if (entries.isEmpty()) {
             return;
         }
+        
+        // 尝试整个批次在一个事务中处理，保证原子性
         try {
-            for (PerformanceFlushQueueEntry entry : entries) {
-                transactionTemplate.execute(status -> {
+            transactionTemplate.execute(status -> {
+                for (PerformanceFlushQueueEntry entry : entries) {
                     applyEvent(entry.getEvent());
-                    return null;
-                });
+                }
+                return null;
+            });
+            // 事务成功后才 ACK 和清理
+            for (PerformanceFlushQueueEntry entry : entries) {
                 flushQueue.ack(entry);
                 performanceEngine.onFlushCommitted(entry.getEvent());
             }
             performanceEngine.recordFlushSuccess(entries.size());
         } catch (Exception ex) {
-            LOGGER.error("[nonce] flush worker batch failed, requeue", ex);
+            LOGGER.error("[nonce] flush worker batch failed (size={}), requeue all entries", entries.size(), ex);
+            // 整个批次失败，全部重新入队
             flushQueue.nack(entries);
             performanceEngine.recordFlushFailure(ex);
         }

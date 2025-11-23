@@ -325,16 +325,48 @@ public class PerformanceNonceEngine implements NonceAllocationEngine {
 
     /**
      * 确保计数器存在：从 DB 同步最新 nextLocalNonce。
+     * <p>处理并发初始化场景：如果 setIfAbsent 失败（其他线程已设置），需要验证并修正值确保一致性。</p>
+     * <p>注意：此方法在 {@link SubmitterLockCoordinator} 的锁保护下调用，同一 submitter 不会并发执行。</p>
      */
     private void ensureCounterInitialized(String submitter) {
         String key = counterKey(submitter);
         Boolean exists = redisTemplate.hasKey(key);
-        if (exists) {
+        if (Boolean.TRUE.equals(exists)) {
             return;
         }
+        
+        // 双重检查：在 DB 锁内再次检查 Redis，避免并发初始化
         SubmitterNonceState state = nonceRepository.lockAndLoadState(submitter);
+        exists = redisTemplate.hasKey(key);
+        if (Boolean.TRUE.equals(exists)) {
+            // 其他线程/进程已经初始化，直接返回
+            return;
+        }
+        
         long initial = Math.max(-1, state.getNextLocalNonce() - 1);
-        redisTemplate.opsForValue().setIfAbsent(key, String.valueOf(initial));
+        Boolean setResult = redisTemplate.opsForValue().setIfAbsent(key, String.valueOf(initial), config.getRedisKeyTtl());
+        
+        // 如果 setIfAbsent 返回 false，说明在检查期间其他线程/进程已经设置
+        // 需要验证值是否正确（可能跨进程并发）
+        if (Boolean.FALSE.equals(setResult)) {
+            String currentValue = redisTemplate.opsForValue().get(key);
+            if (currentValue != null) {
+                try {
+                    long current = Long.parseLong(currentValue);
+                    // 如果当前值小于预期初始值，需要提升（可能其他进程设置了更小的值）
+                    if (current < initial) {
+                        LOGGER.warn("[nonce] counter value {} < expected {} for submitter: {}, correcting", 
+                                current, initial, submitter);
+                        raiseCounterTo(submitter, initial);
+                    }
+                } catch (NumberFormatException e) {
+                    LOGGER.warn("[nonce] invalid counter value in Redis for submitter: {}, value: {}, reinitializing", 
+                            submitter, currentValue, e);
+                    redisTemplate.delete(key);
+                    redisTemplate.opsForValue().setIfAbsent(key, String.valueOf(initial), config.getRedisKeyTtl());
+                }
+            }
+        }
     }
 
     /**
@@ -367,6 +399,8 @@ public class PerformanceNonceEngine implements NonceAllocationEngine {
     private void addToRecyclePool(String submitter, long nonce) {
         String key = recycleKey(submitter);
         redisTemplate.opsForZSet().add(key, String.valueOf(nonce), nonce);
+        // 更新 TTL（确保回收池不会无限期保留）
+        redisTemplate.expire(key, config.getRedisKeyTtl());
     }
 
     /**
@@ -385,6 +419,8 @@ public class PerformanceNonceEngine implements NonceAllocationEngine {
         try {
             String payload = objectMapper.writeValueAsString(snapshot);
             redisTemplate.opsForHash().put(key, String.valueOf(snapshot.getNonce()), payload);
+            // 更新 TTL（每次写入都延长过期时间）
+            redisTemplate.expire(key, config.getRedisKeyTtl());
         } catch (JsonProcessingException e) {
             throw new NonceException("序列化 AllocationSnapshot 失败", e);
         }

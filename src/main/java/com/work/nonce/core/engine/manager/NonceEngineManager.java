@@ -59,7 +59,16 @@ public class NonceEngineManager implements NonceAllocationEngine {
                         "allocate");
             case DUAL_WRITE:
                 NonceAllocation allocation = reliableEngine.allocate(submitter);
-                performanceEngine.mirrorReservation(allocation);
+                // mirror 失败不应该影响主流程（DB 已成功），但需要记录日志和健康状态
+                try {
+                    performanceEngine.mirrorReservation(allocation);
+                } catch (RuntimeException mirrorEx) {
+                    LOGGER.warn("[nonce] DUAL_WRITE mirrorReservation failed for submitter: {}, nonce: {}, " +
+                            "but DB allocation succeeded. This may cause Redis/DB inconsistency.", 
+                            submitter, allocation.getNonce(), mirrorEx);
+                    performanceEngine.recordFlushFailure(mirrorEx);
+                    // 不抛异常，保证主流程可用，但记录问题供后续对账
+                }
                 return allocation;
             case DRAIN_AND_SYNC:
                 performanceEngine.awaitDrainCompletion();
@@ -93,7 +102,13 @@ public class NonceEngineManager implements NonceAllocationEngine {
                 break;
             case DUAL_WRITE:
                 reliableEngine.markUsed(submitter, nonce, txHash);
-                performanceEngine.mirrorMarkUsed(submitter, nonce, txHash);
+                try {
+                    performanceEngine.mirrorMarkUsed(submitter, nonce, txHash);
+                } catch (RuntimeException mirrorEx) {
+                    LOGGER.warn("[nonce] DUAL_WRITE mirrorMarkUsed failed for submitter: {}, nonce: {}, " +
+                            "but DB update succeeded.", submitter, nonce, mirrorEx);
+                    performanceEngine.recordFlushFailure(mirrorEx);
+                }
                 break;
             case DRAIN_AND_SYNC:
             case DEGRADED:
@@ -126,7 +141,13 @@ public class NonceEngineManager implements NonceAllocationEngine {
                 break;
             case DUAL_WRITE:
                 reliableEngine.markRecyclable(submitter, nonce, reason);
-                performanceEngine.mirrorMarkRecyclable(submitter, nonce, reason);
+                try {
+                    performanceEngine.mirrorMarkRecyclable(submitter, nonce, reason);
+                } catch (RuntimeException mirrorEx) {
+                    LOGGER.warn("[nonce] DUAL_WRITE mirrorMarkRecyclable failed for submitter: {}, nonce: {}, " +
+                            "but DB update succeeded.", submitter, nonce, mirrorEx);
+                    performanceEngine.recordFlushFailure(mirrorEx);
+                }
                 break;
             case DRAIN_AND_SYNC:
             case DEGRADED:
@@ -222,9 +243,68 @@ public class NonceEngineManager implements NonceAllocationEngine {
 
     /** 切换模式并记录时间戳，同时输出日志。 */
     private void setMode(NonceEngineMode newMode) {
-        NonceEngineMode old = mode.getAndSet(newMode);
+        NonceEngineMode old = mode.get();
+        
+        // 状态机校验：检查转换是否合法
+        if (!isValidTransition(old, newMode)) {
+            throw new NonceException(String.format(
+                    "非法模式转换: %s -> %s. 合法的转换路径: RELIABLE -> DUAL_WRITE -> PERFORMANCE, " +
+                    "PERFORMANCE -> DRAIN_AND_SYNC -> RELIABLE, 或任意模式 -> DEGRADED/RELIABLE",
+                    old, newMode));
+        }
+        
+        mode.set(newMode);
         modeUpdatedAt.set(Instant.now());
         LOGGER.info("[nonce] switch mode {} -> {}", old, newMode);
+    }
+    
+    /**
+     * 校验状态转换是否合法。
+     * <p>合法转换规则：</p>
+     * <ul>
+     *     <li>RELIABLE -> DUAL_WRITE -> PERFORMANCE（正常升级路径）</li>
+     *     <li>PERFORMANCE -> DRAIN_AND_SYNC -> RELIABLE（降级路径）</li>
+     *     <li>任意模式 -> DEGRADED（异常降级）</li>
+     *     <li>任意模式 -> RELIABLE（强制回退）</li>
+     * </ul>
+     */
+    private boolean isValidTransition(NonceEngineMode from, NonceEngineMode to) {
+        if (from == to) {
+            return true; // 允许相同模式（幂等）
+        }
+        
+        // 允许强制回退到可靠模式
+        if (to == NonceEngineMode.RELIABLE) {
+            return true;
+        }
+        
+        // 允许异常降级
+        if (to == NonceEngineMode.DEGRADED) {
+            return true;
+        }
+        
+        // 正常升级路径
+        if (from == NonceEngineMode.RELIABLE && to == NonceEngineMode.DUAL_WRITE) {
+            return true;
+        }
+        if (from == NonceEngineMode.DUAL_WRITE && to == NonceEngineMode.PERFORMANCE) {
+            return true;
+        }
+        
+        // 降级路径
+        if (from == NonceEngineMode.PERFORMANCE && to == NonceEngineMode.DRAIN_AND_SYNC) {
+            return true;
+        }
+        if (from == NonceEngineMode.DRAIN_AND_SYNC && to == NonceEngineMode.RELIABLE) {
+            return true;
+        }
+        
+        // DUAL_WRITE 可以回退到 RELIABLE（跳过 PERFORMANCE）
+        if (from == NonceEngineMode.DUAL_WRITE && to == NonceEngineMode.RELIABLE) {
+            return true;
+        }
+        
+        return false;
     }
 }
 

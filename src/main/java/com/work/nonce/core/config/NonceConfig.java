@@ -30,6 +30,12 @@ public class NonceConfig {
     private final Duration performanceLagTolerance;
     /** Redis 出现故障时是否自动降级回可靠模式。 */
     private final boolean degradeOnRedisFailure;
+    /** Redis key 的默认 TTL（用于计数器/回收池/快照），防止内存泄漏。0 表示永不过期（不推荐）。 */
+    private final Duration redisKeyTtl;
+    /** RESERVED 状态的过期时间，超过该时间未转为 USED/RECYCLABLE 将被自动回收。 */
+    private final Duration staleReservedTimeout;
+    /** 历史 USED 记录保留天数，超过该天数的记录将被归档/清理（0 表示不清理）。 */
+    private final int usedRecordRetentionDays;
 
     private NonceConfig(Builder builder) {
         this.redisEnabled = builder.redisEnabled;
@@ -43,6 +49,9 @@ public class NonceConfig {
         this.drainTimeout = builder.drainTimeout;
         this.performanceLagTolerance = builder.performanceLagTolerance;
         this.degradeOnRedisFailure = builder.degradeOnRedisFailure;
+        this.redisKeyTtl = builder.redisKeyTtl;
+        this.staleReservedTimeout = builder.staleReservedTimeout;
+        this.usedRecordRetentionDays = builder.usedRecordRetentionDays;
     }
 
     public static NonceConfig defaultConfig() {
@@ -96,6 +105,18 @@ public class NonceConfig {
     public boolean isDegradeOnRedisFailure() {
         return degradeOnRedisFailure;
     }
+    
+    public Duration getRedisKeyTtl() {
+        return redisKeyTtl;
+    }
+    
+    public Duration getStaleReservedTimeout() {
+        return staleReservedTimeout;
+    }
+    
+    public int getUsedRecordRetentionDays() {
+        return usedRecordRetentionDays;
+    }
 
     /**
      * 构造器模式，方便宿主按照需要覆盖默认值。
@@ -112,6 +133,9 @@ public class NonceConfig {
         private Duration drainTimeout = Duration.ofSeconds(10);
         private Duration performanceLagTolerance = Duration.ofSeconds(5);
         private boolean degradeOnRedisFailure = true;
+        private Duration redisKeyTtl = Duration.ofDays(30); // 默认 30 天过期
+        private Duration staleReservedTimeout = Duration.ofHours(1); // 默认 1 小时未处理视为过期
+        private int usedRecordRetentionDays = 90; // 默认保留 90 天
 
         public Builder redisEnabled(boolean redisEnabled) {
             this.redisEnabled = redisEnabled;
@@ -167,9 +191,81 @@ public class NonceConfig {
             this.degradeOnRedisFailure = degradeOnRedisFailure;
             return this;
         }
+        
+        public Builder redisKeyTtl(Duration redisKeyTtl) {
+            this.redisKeyTtl = redisKeyTtl;
+            return this;
+        }
+        
+        public Builder staleReservedTimeout(Duration staleReservedTimeout) {
+            this.staleReservedTimeout = staleReservedTimeout;
+            return this;
+        }
+        
+        public Builder usedRecordRetentionDays(int usedRecordRetentionDays) {
+            this.usedRecordRetentionDays = usedRecordRetentionDays;
+            return this;
+        }
 
         public NonceConfig build() {
+            // 配置合理性校验
+            validateConfig();
             return new NonceConfig(this);
+        }
+        
+        /**
+         * 校验配置合理性，防止不安全的参数组合。
+         */
+        private void validateConfig() {
+            // 锁 TTL 必须大于事务超时（留出余量），否则锁可能提前释放
+            // ReliableNonceEngine.TRANSACTION_TIMEOUT_SECONDS = 5s
+            long minLockTtlSeconds = 5 + 2; // 事务超时 + 余量
+            if (lockTtl.getSeconds() < minLockTtlSeconds) {
+                throw new IllegalArgumentException(String.format(
+                        "lockTtl (%ds) 必须 >= %ds (事务超时5s + 余量2s)，否则锁可能在事务完成前过期",
+                        lockTtl.getSeconds(), minLockTtlSeconds));
+            }
+            
+            // 批量大小必须合理
+            if (flushBatchSize <= 0 || flushBatchSize > 10000) {
+                throw new IllegalArgumentException(
+                        "flushBatchSize 必须在 1-10000 之间，当前值: " + flushBatchSize);
+            }
+            
+            // 各种超时必须为正数
+            if (reservedTimeout.isNegative() || reservedTimeout.isZero()) {
+                throw new IllegalArgumentException("reservedTimeout 必须大于 0");
+            }
+            if (flushInterval.isNegative() || flushInterval.isZero()) {
+                throw new IllegalArgumentException("flushInterval 必须大于 0");
+            }
+            if (drainTimeout.isNegative() || drainTimeout.isZero()) {
+                throw new IllegalArgumentException("drainTimeout 必须大于 0");
+            }
+            if (performanceLagTolerance.isNegative() || performanceLagTolerance.isZero()) {
+                throw new IllegalArgumentException("performanceLagTolerance 必须大于 0");
+            }
+            
+            // 重试次数必须合理
+            if (flushMaxRetry < 0 || flushMaxRetry > 100) {
+                throw new IllegalArgumentException(
+                        "flushMaxRetry 必须在 0-100 之间，当前值: " + flushMaxRetry);
+            }
+            
+            // Redis key TTL 必须合理（0 表示不过期）
+            if (redisKeyTtl != null && redisKeyTtl.isNegative()) {
+                throw new IllegalArgumentException("redisKeyTtl 不能为负数");
+            }
+            
+            // staleReservedTimeout 必须合理
+            if (staleReservedTimeout.isNegative() || staleReservedTimeout.isZero()) {
+                throw new IllegalArgumentException("staleReservedTimeout 必须大于 0");
+            }
+            
+            // 保留天数必须非负
+            if (usedRecordRetentionDays < 0) {
+                throw new IllegalArgumentException("usedRecordRetentionDays 不能为负数");
+            }
         }
     }
 }
