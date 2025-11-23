@@ -14,6 +14,7 @@ import java.util.Optional;
 
 import static com.work.nonce.core.support.ValidationUtils.requireNonEmpty;
 import static com.work.nonce.core.support.ValidationUtils.requireNonNegative;
+import static com.work.nonce.core.support.ValidationUtils.requireValidSubmitter;
 
 /**
  * 可靠模式的核心实现：依赖数据库事务与 Redis 锁保障串行分配。
@@ -49,7 +50,7 @@ public class ReliableNonceEngine implements NonceAllocationEngine {
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED, timeout = TRANSACTION_TIMEOUT_SECONDS)
     public NonceAllocation allocate(String submitter) {
-        requireNonEmpty(submitter, "submitter");
+        requireValidSubmitter(submitter);
 
         // 在单 submitter 维度加锁，确保同一时间只有一个线程进入分配流程。
         return lockCoordinator.executeWithLock(submitter, owner -> doAllocate(submitter, owner));
@@ -86,7 +87,7 @@ public class ReliableNonceEngine implements NonceAllocationEngine {
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED, timeout = TRANSACTION_TIMEOUT_SECONDS)
     public void markUsed(String submitter, long nonce, String txHash) {
-        requireNonEmpty(submitter, "submitter");
+        requireValidSubmitter(submitter);
         requireNonEmpty(txHash, "txHash");
         requireNonNegative(nonce, "nonce");
 
@@ -97,7 +98,7 @@ public class ReliableNonceEngine implements NonceAllocationEngine {
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED, timeout = TRANSACTION_TIMEOUT_SECONDS)
     public void markRecyclable(String submitter, long nonce, String reason) {
-        requireNonEmpty(submitter, "submitter");
+        requireValidSubmitter(submitter);
         requireNonNegative(nonce, "nonce");
 
         // reason 可以为空，这里统一替换为空串，便于存储

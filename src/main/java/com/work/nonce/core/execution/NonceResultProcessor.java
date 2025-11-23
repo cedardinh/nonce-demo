@@ -4,7 +4,7 @@ import com.work.nonce.core.engine.spi.NonceAllocationEngine;
 import com.work.nonce.core.exception.NonceException;
 import com.work.nonce.core.model.NonceAllocation;
 
-import static com.work.nonce.core.support.ValidationUtils.requireNonEmpty;
+import static com.work.nonce.core.support.ValidationUtils.requireValidSubmitter;
 import static com.work.nonce.core.support.ValidationUtils.requireNonNull;
 
 /**
@@ -23,7 +23,7 @@ public class NonceResultProcessor {
     public <T> NonceExecutionResult<T> process(String submitter,
                                                NonceAllocation allocation,
                                                NonceExecutionResult<T> result) {
-        requireNonEmpty(submitter, "submitter");
+        requireValidSubmitter(submitter);
         requireNonNull(allocation, "allocation");
         validateResult(result);
         updateAllocationStatus(submitter, allocation, result);

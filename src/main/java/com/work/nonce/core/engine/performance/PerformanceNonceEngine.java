@@ -110,6 +110,7 @@ public class PerformanceNonceEngine implements NonceAllocationEngine {
     @Override
     public NonceAllocation allocate(String submitter) {
         ensureEnabled();
+        com.work.nonce.core.support.ValidationUtils.requireValidSubmitter(submitter);
         return lockCoordinator.executeWithLock(submitter, owner -> doAllocate(submitter));
     }
 
@@ -120,6 +121,7 @@ public class PerformanceNonceEngine implements NonceAllocationEngine {
     @Override
     public void markUsed(String submitter, long nonce, String txHash) {
         ensureEnabled();
+        com.work.nonce.core.support.ValidationUtils.requireValidSubmitter(submitter);
         lockCoordinator.executeWithLock(submitter, owner -> {
             AllocationSnapshot snapshot = loadSnapshot(submitter, nonce)
                     .orElse(AllocationSnapshot.synthetic(submitter, nonce, false));
@@ -138,6 +140,7 @@ public class PerformanceNonceEngine implements NonceAllocationEngine {
     @Override
     public void markRecyclable(String submitter, long nonce, String reason) {
         ensureEnabled();
+        com.work.nonce.core.support.ValidationUtils.requireValidSubmitter(submitter);
         lockCoordinator.executeWithLock(submitter, owner -> {
             AllocationSnapshot snapshot = loadSnapshot(submitter, nonce)
                     .orElse(AllocationSnapshot.synthetic(submitter, nonce, false));

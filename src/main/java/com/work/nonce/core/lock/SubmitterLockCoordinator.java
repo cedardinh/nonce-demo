@@ -2,6 +2,8 @@ package com.work.nonce.core.lock;
 
 import com.work.nonce.core.config.NonceConfig;
 import com.work.nonce.core.exception.NonceException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -16,6 +18,8 @@ import static com.work.nonce.core.support.ValidationUtils.requireNonNull;
  */
 @Component
 public class SubmitterLockCoordinator {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SubmitterLockCoordinator.class);
 
     private final RedisLockManager redisLockManager;
     private final NonceConfig config;
@@ -88,7 +92,8 @@ public class SubmitterLockCoordinator {
         try {
             redisLockManager.unlock(submitter, owner);
         } catch (Exception ignored) {
-            // 忽略异常，避免在释放锁时抛出新的错误
+            // 记录告警日志，但不再向外抛出，避免在 finally 或事务钩子中打断主流程
+            LOGGER.warn("[nonce] 释放 Redis 锁失败，submitter={}, owner={}", submitter, owner, ignored);
         }
     }
 

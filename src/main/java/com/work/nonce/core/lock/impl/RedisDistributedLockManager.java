@@ -3,6 +3,8 @@ package com.work.nonce.core.lock.impl;
 import com.work.nonce.core.exception.NonceException;
 import com.work.nonce.core.lock.RedisLockManager;
 import com.work.nonce.core.support.ValidationUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -26,6 +28,7 @@ import static com.work.nonce.core.support.ValidationUtils.requirePositive;
 public class RedisDistributedLockManager implements RedisLockManager {
 
     private static final String LOCK_KEY_PREFIX = "nonce:lock:";
+    private static final Logger LOGGER = LoggerFactory.getLogger(RedisDistributedLockManager.class);
     
     private final StringRedisTemplate redisTemplate;
     
@@ -109,15 +112,13 @@ public class RedisDistributedLockManager implements RedisLockManager {
             // result == 0 表示锁不存在或 owner 不匹配（可能已过期或被其他实例释放）
             // 这里不抛异常，因为锁可能已经过期或被其他实例释放（幂等性）
             if (result == null || result == 0) {
-                // 可以记录日志，但不抛异常（幂等性）
-                // 生产环境应该使用日志框架记录：锁可能已过期或被其他实例释放
+                // 锁不存在或 owner 不匹配，一般意味着已过期或被其他实例释放，记录调试信息但不抛异常
+                LOGGER.debug("[nonce] unlock noop, key may be expired or owned by others, submitter={}, owner={}",
+                        submitter, lockOwner);
             }
         } catch (Exception e) {
-            // 记录日志但不抛异常，避免影响主流程
-            // 生产环境应该使用日志框架记录
-            // 注意：这里选择不抛异常是为了保证幂等性，即使释放失败也不影响主流程
-            // 如果确实需要严格保证锁释放，可以取消注释下面的代码
-            // throw new NonceException("Redis 释放锁异常: " + submitter, e);
+            // 记录错误日志，但默认不抛异常，以保证幂等性和主流程可用性
+            LOGGER.warn("[nonce] Redis 释放锁异常: submitter={}, owner={}", submitter, lockOwner, e);
         }
     }
 }
