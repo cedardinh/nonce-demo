@@ -50,7 +50,7 @@ Client → Biz API → NonceExecutionTemplate
 
 ```mermaid
 graph TD
-    A[客户端调用\n提交 submitter] --> B[NonceService 分配]
+    A[客户端调用\n提交 submitter] --> B[ReliableNonceEngine 分配]
     B --> C{Redis 加锁或降级}
     C -->|成功或降级| D[Postgres 事务\n锁定 submitter 状态]
     D --> X[根据链上最新 nonce\n确认 RESERVED / 释放资源]
@@ -103,13 +103,13 @@ graph TD
 - **执行模板层 `NonceExecutionTemplate`**
   - 封装“获取 nonce → 执行业务 handler → 按结果更新状态”的通用逻辑；
   - 负责：
-    - 调用 `NonceService` 分配 nonce；
+    - 调用 `ReliableNonceEngine` 分配 nonce；
     - 执行 handler，并为其提供上下文（包含 submitter、nonce 等信息）；
     - 在成功时将 allocation 状态标记为 `USED`；
     - 在失败/异常时将 allocation 状态标记为 `RECYCLABLE`；
     - 在 finally 中释放 Redis 锁、清理 `lock_owner`。
 
-- **领域服务层 `NonceService`**
+- **领域服务层 `ReliableNonceEngine`**
   - 专注于“如何为某个 submitter 分配一个正确的 nonce”：
     - 使用 `RedisLockManager` 获取 per-submitters 分布式锁（失败自动降级）；
     - 在 Postgres 事务内：
@@ -122,7 +122,7 @@ graph TD
 - **基础设施层（组件内）**
   - `NonceRepository`：封装所有对 `submitter_nonce_state` 与 `submitter_nonce_allocation` 的 SQL 操作；
   - `RedisLockManager`：统一管理 `nonce:lock:{submitter}` 的加锁/解锁和降级逻辑；
-  - 链上查询：在 `NonceService` 内部可直接调用链上接口（示例为伪代码），将 `RESERVED → USED` 的纠偏交给链上最新 nonce。
+  - 链上查询：在 `ReliableNonceEngine` 内部可直接调用链上接口（示例为伪代码），将 `RESERVED → USED` 的纠偏交给链上最新 nonce。
 - **业务侧扩展**
   - `ChainClient` 等外围依赖由业务自行实现，并通过 handler 闭包或依赖注入使用；组件仅提供 submitter/nonce 上下文，不感知外部实现细节。
 
@@ -137,7 +137,7 @@ graph TD
      - `NonceComponent` / `NonceUtils`：业务唯一依赖的门面类。
      - 若需要，暴露简单的 `NonceConfig` 供宿主应用配置。
    - 内部包含：
-     - `NonceService`：核心分配逻辑（Redis 锁 + Postgres），同 submitter 串行、不同 submitter 多线程并发。
+     - `ReliableNonceEngine`：核心分配逻辑（Redis 锁 + Postgres），同 submitter 串行、不同 submitter 多线程并发。
      - `NonceExecutionTemplate`：封装“获取 nonce → 执行业务 handler → 状态流转”的模板。
      - `NonceRepository`、`RedisLockManager` 等基础设施实现。
 
@@ -157,7 +157,7 @@ graph TD
 1. **初始化数据库层**
    - 确认 Postgres/Flyway 可用。
    - 建好 `submitter_nonce_state`、`submitter_nonce_allocation`，配置唯一约束与索引。
-2. **实现 NonceService**
+2. **实现 ReliableNonceEngine**
    - Redis 操作封装：`tryLockSubmitter`, `releaseLock`，支持降级。
    - Postgres 事务：`SELECT ... FOR UPDATE`、复用洞、新号逻辑、`UNIQUE(submitter, nonce)` 约束处理。
 3. **实现 NonceExecutionTemplate**
@@ -246,7 +246,7 @@ graph TD
 
 ## 10. 测试计划
 
-1. **单元测试**：NonceService 并发复用洞、新号、Redis 降级。
+1. **单元测试**：ReliableNonceEngine 并发复用洞、新号、Redis 降级。
 2. **模板测试**：模拟 SUCCESS / RETRYABLE / NON_RETRYABLE，校验状态转换。
 3. **链上调用测试**：mock chainClient 抛错/超时，验证 nonce 保持 RESERVED 或回收。
 4. **多线程集成测试**：多 submitter 并发、同 submitter 重试，确保 `UNIQUE(submitter, nonce)` 无冲突。

@@ -1,6 +1,6 @@
 package com.work.nonce.demo.service;
 
-import com.work.nonce.core.NonceComponent;
+import com.work.nonce.core.NonceFacade;
 import com.work.nonce.core.execution.NonceExecutionResult;
 import com.work.nonce.demo.chain.ChainClient;
 import com.work.nonce.core.model.NonceAllocation;
@@ -18,17 +18,17 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 示例业务服务：展示业务如何通过 NonceComponent 获取 nonce 并写链。
+     * 示例业务服务：展示业务如何通过 NonceFacade 获取 nonce 并写链。
  */
 @Service
 public class NonceDemoService {
 
-    private final NonceComponent nonceComponent;
+    private final NonceFacade nonceFacade;
     private final ChainClient chainClient;
     private final Map<String, Boolean> firstFailFlags = new ConcurrentHashMap<>();
 
-    public NonceDemoService(NonceComponent nonceComponent, ChainClient chainClient) {
-        this.nonceComponent = nonceComponent;
+    public NonceDemoService(NonceFacade nonceFacade, ChainClient chainClient) {
+        this.nonceFacade = nonceFacade;
         this.chainClient = chainClient;
     }
 
@@ -36,7 +36,7 @@ public class NonceDemoService {
      * 低阶流程：只领取 nonce，业务后续自行决定何时提交/回收。
      */
     public ManualNonceAllocationResponse manualAllocate(String submitter) {
-        NonceAllocation allocation = nonceComponent.allocate(submitter);
+        NonceAllocation allocation = nonceFacade.allocate(submitter);
         return ManualNonceAllocationResponse.fromAllocation(allocation,
                 "当前线程独占该 nonce，需业务在流程完成后手动标记状态");
     }
@@ -45,7 +45,7 @@ public class NonceDemoService {
      * 低阶流程：业务确认链上成功后，手动标记为 USED。
      */
     public ManualNonceOperationResponse manualMarkUsed(String submitter, long nonce, String txHash) {
-        nonceComponent.markUsed(submitter, nonce, txHash);
+        nonceFacade.markUsed(submitter, nonce, txHash);
         return ManualNonceOperationResponse.success("手动标记 USED",
                 submitter, nonce, "txHash=" + txHash);
     }
@@ -54,7 +54,7 @@ public class NonceDemoService {
      * 低阶流程：业务无法完成，显式释放本次 nonce，供后续复用。
      */
     public ManualNonceOperationResponse manualMarkRecyclable(String submitter, long nonce, String reason) {
-        nonceComponent.markRecyclable(submitter, nonce, reason);
+        nonceFacade.markRecyclable(submitter, nonce, reason);
         return ManualNonceOperationResponse.success("手动回收 RECYCLABLE",
                 submitter, nonce, reason == null ? "无额外原因" : reason);
     }
@@ -64,7 +64,7 @@ public class NonceDemoService {
      */
     public NonceScenarioResponse refund(String submitter, String payload) {
         AtomicLong nonceHolder = new AtomicLong(-1L);
-        NonceExecutionResult<SimpleNoncePayloadFF> result = nonceComponent.withNonce(submitter, ctx -> {
+        NonceExecutionResult<SimpleNoncePayloadFF> result = nonceFacade.withNonce(submitter, ctx -> {
             nonceHolder.set(ctx.getNonce());
             String txHash = chainClient.sendTransaction(ctx.getSubmitter(), ctx.getNonce(), payload);
             SimpleNoncePayloadFF responsePayload = new SimpleNoncePayloadFF(txHash, payload);
@@ -78,7 +78,7 @@ public class NonceDemoService {
      */
     public NonceScenarioResponse simulateChainFailure(String submitter, String payload) {
         AtomicLong nonceHolder = new AtomicLong(-1L);
-        NonceExecutionResult<SimpleNoncePayloadFF> result = nonceComponent.withNonce(submitter, ctx -> {
+        NonceExecutionResult<SimpleNoncePayloadFF> result = nonceFacade.withNonce(submitter, ctx -> {
             nonceHolder.set(ctx.getNonce());
             return NonceExecutionResult.fail("模拟链上 RPC 失败，nonce 立即回收", (SimpleNoncePayloadFF) null);
         });
@@ -92,7 +92,7 @@ public class NonceDemoService {
     public NonceScenarioResponse retryWithAutoRecycle(String submitter, String payload) {
         boolean failThisRound = firstFailFlags.putIfAbsent(submitter, Boolean.TRUE) == null;
         AtomicLong nonceHolder = new AtomicLong(-1L);
-        NonceExecutionResult<SimpleNoncePayloadFF> result = nonceComponent.withNonce(submitter, ctx -> {
+        NonceExecutionResult<SimpleNoncePayloadFF> result = nonceFacade.withNonce(submitter, ctx -> {
             nonceHolder.set(ctx.getNonce());
             if (failThisRound) {
                 return NonceExecutionResult.fail("第一次调用模拟失败，nonce 被回收到 RECYCLABLE", (SimpleNoncePayloadFF) null);
@@ -122,7 +122,7 @@ public class NonceDemoService {
             String payload = payloads.get(i);
             AtomicLong nonceHolder = new AtomicLong(-1L);
             int order = i + 1;
-            NonceExecutionResult<SimpleNoncePayloadFF> result = nonceComponent.withNonce(submitter, ctx -> {
+            NonceExecutionResult<SimpleNoncePayloadFF> result = nonceFacade.withNonce(submitter, ctx -> {
                 nonceHolder.set(ctx.getNonce());
                 String txHash = chainClient.sendTransaction(ctx.getSubmitter(), ctx.getNonce(), payload);
                 return NonceExecutionResult.success(txHash, new SimpleNoncePayloadFF(txHash, payload));

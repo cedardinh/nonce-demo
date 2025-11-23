@@ -55,4 +55,11 @@ nonce:
   redis-enabled: true
   lock-ttl: 10s
   reserved-timeout: 30s
+  flush-batch-size: 200
+  flush-interval: 500ms
+  flush-retry-interval: 5s
+  flush-max-retry: 3
+  dual-write-warmup-timeout: 30s
+  drain-timeout: 10s
+  performance-lag-tolerance: 5s
   degrade-on-redis-failure: true

@@ -45,6 +45,9 @@ public interface NonceRepository {
      */
     void markRecyclable(String submitter, long nonce, String reason);
 
+    /**
+     * 单独更新 lastChainNonce 字段，避免影响 nextLocalNonce。
+     */
     void updateLastChainNonce(String submitter, long lastChainNonce);
 }
 

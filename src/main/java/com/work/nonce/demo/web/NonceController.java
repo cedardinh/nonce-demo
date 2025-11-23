@@ -21,7 +21,7 @@ import java.util.List;
 /**
  * 对外暴露多种业务场景，方便接口层验证组件“拿号 → 写链 → 状态流转”的完整能力。
  * <p>
- * 所有接口均复用 {@link com.work.nonce.core.NonceComponent#withNonce(String, com.work.nonce.core.execution.NonceExecutionHandler)}
+ * 所有接口均复用 {@link com.work.nonce.core.NonceFacade#withNonce(String, com.work.nonce.core.execution.NonceExecutionHandler)}
  * 来确保业务只关注 handler 内的核心逻辑。
  */
 @RestController

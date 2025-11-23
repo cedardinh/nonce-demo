@@ -88,7 +88,7 @@ public class SubmitterLockCoordinator {
         try {
             redisLockManager.unlock(submitter, owner);
         } catch (Exception ignored) {
-            // swallow, we do not want secondary errors during release
+            // 忽略异常，避免在释放锁时抛出新的错误
         }
     }
 

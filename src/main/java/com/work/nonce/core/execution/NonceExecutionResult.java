@@ -32,34 +32,52 @@ public class NonceExecutionResult<T> {
         this.payload = payload;
     }
 
+    /**
+     * 构造 SUCCESS 结果并携带业务自定义载荷。
+     *
+     * @param txHash  链上交易哈希
+     * @param payload 业务返回值
+     */
     public static <T> NonceExecutionResult<T> success(String txHash, T payload) {
         return new NonceExecutionResult<>(Status.SUCCESS, txHash, null, payload);
     }
 
+    /** 构造不带 payload 的 SUCCESS 结果。 */
     public static NonceExecutionResult<Void> success(String txHash) {
         return success(txHash, null);
     }
 
+    /**
+     * 构造 FAIL 结果并携带 payload。
+     *
+     * @param reason 失败原因
+     * @param payload 业务返回值
+     */
     public static <T> NonceExecutionResult<T> fail(String reason, T payload) {
         return new NonceExecutionResult<>(Status.FAIL, null, reason, payload);
     }
 
+    /** 构造不带 payload 的 FAIL 结果。 */
     public static NonceExecutionResult<Void> fail(String reason) {
         return fail(reason, null);
     }
 
+    /** @return 当前状态 */
     public Status getStatus() {
         return status;
     }
 
+    /** @return SUCCESS 时的链上哈希 */
     public String getTxHash() {
         return txHash;
     }
 
+    /** @return FAIL 时的原因 */
     public String getReason() {
         return reason;
     }
 
+    /** @return 业务自定义载荷 */
     public T getPayload() {
         return payload;
     }
