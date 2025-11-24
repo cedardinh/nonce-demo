@@ -19,7 +19,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
@@ -43,6 +45,10 @@ public class PerformanceNonceEngine implements NonceAllocationEngine {
      * Allocation 快照哈希 key 前缀。
      */
     private static final String CACHE_KEY_TEMPLATE = "nonce:alloc:%s";
+    /**
+     * 批量预取池 key 前缀。
+     */
+    private static final String PREFETCH_KEY_TEMPLATE = "nonce:prefetch:%s";
     /**
      * 写入 RESERVED 时使用的锁 owner 标识。
      */
@@ -111,7 +117,7 @@ public class PerformanceNonceEngine implements NonceAllocationEngine {
     public NonceAllocation allocate(String submitter) {
         ensureEnabled();
         com.work.nonce.core.support.ValidationUtils.requireValidSubmitter(submitter);
-        return lockCoordinator.executeWithLock(submitter, owner -> doAllocate(submitter));
+        return doAllocate(submitter);
     }
 
 
@@ -307,20 +313,107 @@ public class PerformanceNonceEngine implements NonceAllocationEngine {
         if (recycled != null) {
             return AllocationSnapshot.reserved(submitter, recycled, false);
         }
-        long nonce = nextCounter(submitter);
+        long nonce = borrowFreshNonce(submitter);
         return AllocationSnapshot.reserved(submitter, nonce, true);
     }
 
     /**
-     * 递增并返回 submitter 的 Redis 计数器。
+     * 从预取池获取一个全新的 nonce，必要时批量补货。
      */
-    private long nextCounter(String submitter) {
+    private long borrowFreshNonce(String submitter) {
+        Long prefetched = popPrefetchedNonce(submitter);
+        if (prefetched != null) {
+            maybeSchedulePrefetch(submitter);
+            return prefetched;
+        }
+
+        Long allocated = lockCoordinator.executeWithLock(submitter, owner -> {
+            Long existing = popPrefetchedNonce(submitter);
+            if (existing != null) {
+                return existing;
+            }
+            generatePrefetchBatch(submitter, config.getPerformancePrefetchBatchSize());
+            return popPrefetchedNonce(submitter);
+        });
+
+        if (allocated == null) {
+            throw new NonceException("批量预取 nonce 失败: " + submitter);
+        }
+
+        maybeSchedulePrefetch(submitter);
+        return allocated;
+    }
+
+    /**
+     * 若剩余数量跌破阈值，则同步触发下一波预取。
+     */
+    private void maybeSchedulePrefetch(String submitter) {
+        int remainingThreshold = prefetchLowWatermark();
+        if (remainingThreshold <= 0) {
+            return;
+        }
+        Long remaining = redisTemplate.opsForList().size(prefetchKey(submitter));
+        long rest = remaining == null ? 0L : remaining;
+        if (rest > remainingThreshold) {
+            return;
+        }
+        lockCoordinator.executeWithLock(submitter, owner -> {
+            Long latest = redisTemplate.opsForList().size(prefetchKey(submitter));
+            long latestRemaining = latest == null ? 0L : latest;
+            if (latestRemaining > remainingThreshold) {
+                return null;
+            }
+            generatePrefetchBatch(submitter, config.getPerformancePrefetchBatchSize());
+            return null;
+        });
+    }
+
+    /**
+     * 从预取池弹出一个 nonce。
+     */
+    private Long popPrefetchedNonce(String submitter) {
+        String value = redisTemplate.opsForList().leftPop(prefetchKey(submitter));
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException ex) {
+            LOGGER.warn("[nonce] invalid prefetched nonce value={}, submitter={}", value, submitter, ex);
+            return null;
+        }
+    }
+
+    /**
+     * 生成一批新的 nonce 并写入预取池。
+     */
+    private void generatePrefetchBatch(String submitter, int batchSize) {
         ensureCounterInitialized(submitter);
-        Long next = redisTemplate.opsForValue().increment(counterKey(submitter));
-        if (next == null) {
+        String key = counterKey(submitter);
+        Long maxValue = redisTemplate.opsForValue().increment(key, batchSize);
+        if (maxValue == null) {
             throw new NonceException("Redis 计数器返回 null");
         }
-        return next;
+        long start = maxValue - batchSize + 1;
+        List<String> values = new ArrayList<>(batchSize);
+        for (long current = start; current <= maxValue; current++) {
+            values.add(String.valueOf(current));
+        }
+        String prefetchKey = prefetchKey(submitter);
+        redisTemplate.opsForList().rightPushAll(prefetchKey, values);
+        redisTemplate.expire(prefetchKey, config.getRedisKeyTtl());
+    }
+
+    /**
+     * 计算触发补货的剩余阈值。
+     */
+    private int prefetchLowWatermark() {
+        double remainingRatio = 1.0d - config.getPerformancePrefetchTriggerRatio();
+        if (remainingRatio <= 0) {
+            return 0;
+        }
+        int batchSize = config.getPerformancePrefetchBatchSize();
+        return Math.max(1, (int) Math.ceil(batchSize * remainingRatio));
     }
 
     /**
@@ -488,6 +581,13 @@ public class PerformanceNonceEngine implements NonceAllocationEngine {
      */
     private String cacheKey(String submitter) {
         return String.format(CACHE_KEY_TEMPLATE, submitter);
+    }
+
+    /**
+     * 计算预取池 key。
+     */
+    private String prefetchKey(String submitter) {
+        return String.format(PREFETCH_KEY_TEMPLATE, submitter);
     }
 
     /**

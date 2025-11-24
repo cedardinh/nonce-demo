@@ -36,6 +36,10 @@ public class NonceConfig {
     private final Duration staleReservedTimeout;
     /** 历史 USED 记录保留天数，超过该天数的记录将被归档/清理（0 表示不清理）。 */
     private final int usedRecordRetentionDays;
+    /** 性能模式下一次批量预取的 nonce 数量。 */
+    private final int performancePrefetchBatchSize;
+    /** 当批量消费比例超过该阈值时触发下一波预取（0-1之间）。 */
+    private final double performancePrefetchTriggerRatio;
 
     private NonceConfig(Builder builder) {
         this.redisEnabled = builder.redisEnabled;
@@ -52,6 +56,8 @@ public class NonceConfig {
         this.redisKeyTtl = builder.redisKeyTtl;
         this.staleReservedTimeout = builder.staleReservedTimeout;
         this.usedRecordRetentionDays = builder.usedRecordRetentionDays;
+        this.performancePrefetchBatchSize = builder.performancePrefetchBatchSize;
+        this.performancePrefetchTriggerRatio = builder.performancePrefetchTriggerRatio;
     }
 
     public static NonceConfig defaultConfig() {
@@ -118,6 +124,14 @@ public class NonceConfig {
         return usedRecordRetentionDays;
     }
 
+    public int getPerformancePrefetchBatchSize() {
+        return performancePrefetchBatchSize;
+    }
+
+    public double getPerformancePrefetchTriggerRatio() {
+        return performancePrefetchTriggerRatio;
+    }
+
     /**
      * 构造器模式，方便宿主按照需要覆盖默认值。
      */
@@ -136,6 +150,8 @@ public class NonceConfig {
         private Duration redisKeyTtl = Duration.ofDays(30); // 默认 30 天过期
         private Duration staleReservedTimeout = Duration.ofHours(1); // 默认 1 小时未处理视为过期
         private int usedRecordRetentionDays = 90; // 默认保留 90 天
+        private int performancePrefetchBatchSize = 32;
+        private double performancePrefetchTriggerRatio = 0.9d;
 
         public Builder redisEnabled(boolean redisEnabled) {
             this.redisEnabled = redisEnabled;
@@ -207,6 +223,16 @@ public class NonceConfig {
             return this;
         }
 
+        public Builder performancePrefetchBatchSize(int performancePrefetchBatchSize) {
+            this.performancePrefetchBatchSize = performancePrefetchBatchSize;
+            return this;
+        }
+
+        public Builder performancePrefetchTriggerRatio(double performancePrefetchTriggerRatio) {
+            this.performancePrefetchTriggerRatio = performancePrefetchTriggerRatio;
+            return this;
+        }
+
         public NonceConfig build() {
             // 配置合理性校验
             validateConfig();
@@ -265,6 +291,15 @@ public class NonceConfig {
             // 保留天数必须非负
             if (usedRecordRetentionDays < 0) {
                 throw new IllegalArgumentException("usedRecordRetentionDays 不能为负数");
+            }
+
+            if (performancePrefetchBatchSize <= 0 || performancePrefetchBatchSize > 10000) {
+                throw new IllegalArgumentException(
+                        "performancePrefetchBatchSize 必须在 1-10000 之间，当前值: " + performancePrefetchBatchSize);
+            }
+            if (performancePrefetchTriggerRatio <= 0.0d || performancePrefetchTriggerRatio >= 1.0d) {
+                throw new IllegalArgumentException(
+                        "performancePrefetchTriggerRatio 必须在 0-1 之间（不含端点），当前值: " + performancePrefetchTriggerRatio);
             }
         }
     }

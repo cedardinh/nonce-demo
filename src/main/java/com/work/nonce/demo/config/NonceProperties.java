@@ -4,6 +4,8 @@ import com.work.nonce.core.config.NonceConfig;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
+import javax.validation.constraints.DecimalMax;
+import javax.validation.constraints.DecimalMin;
 import javax.validation.constraints.Min;
 import java.time.Duration;
 
@@ -39,6 +41,13 @@ public class NonceProperties {
     private Duration performanceLagTolerance = Duration.ofSeconds(5);
     /** Redis 异常是否自动触发降级。 */
     private boolean degradeOnRedisFailure = true;
+    /** 性能模式一次预取的 nonce 数量。 */
+    @Min(1)
+    private int performancePrefetchBatchSize = 32;
+    /** 消耗达到该比例后会自动触发下一波预取。 */
+    @DecimalMin("0.01")
+    @DecimalMax("0.99")
+    private double performancePrefetchTriggerRatio = 0.9d;
 
     public NonceConfig toConfig() {
         return NonceConfig.builder()
@@ -53,6 +62,8 @@ public class NonceProperties {
                 .drainTimeout(drainTimeout)
                 .performanceLagTolerance(performanceLagTolerance)
                 .degradeOnRedisFailure(degradeOnRedisFailure)
+                .performancePrefetchBatchSize(performancePrefetchBatchSize)
+                .performancePrefetchTriggerRatio(performancePrefetchTriggerRatio)
                 .build();
     }
 
@@ -142,6 +153,22 @@ public class NonceProperties {
 
     public void setDegradeOnRedisFailure(boolean degradeOnRedisFailure) {
         this.degradeOnRedisFailure = degradeOnRedisFailure;
+    }
+
+    public int getPerformancePrefetchBatchSize() {
+        return performancePrefetchBatchSize;
+    }
+
+    public void setPerformancePrefetchBatchSize(int performancePrefetchBatchSize) {
+        this.performancePrefetchBatchSize = performancePrefetchBatchSize;
+    }
+
+    public double getPerformancePrefetchTriggerRatio() {
+        return performancePrefetchTriggerRatio;
+    }
+
+    public void setPerformancePrefetchTriggerRatio(double performancePrefetchTriggerRatio) {
+        this.performancePrefetchTriggerRatio = performancePrefetchTriggerRatio;
     }
 }
 
