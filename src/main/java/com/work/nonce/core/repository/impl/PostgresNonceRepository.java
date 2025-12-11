@@ -116,7 +116,8 @@ public class PostgresNonceRepository implements NonceRepository {
         requirePositive(reservedTimeout, "reservedTimeout");
 
         Instant now = Instant.now();
-        Instant expireBefore = now.minus(reservedTimeout);
+        // locked_until 本身就是过期时间点：locked_until < now 即可回收
+        Instant expireBefore = now;
         
         // 先查询要回收的记录（用于返回）
         List<NonceAllocationEntity> expiredEntities = allocationMapper.findExpiredReservations(submitter, expireBefore);
@@ -181,9 +182,8 @@ public class PostgresNonceRepository implements NonceRepository {
     }
 
     @Override
-    public void markUsed(String submitter, long nonce, String txHash) {
+    public void markUsed(String submitter, long nonce, String txHash, String reason) {
         requireNonEmpty(submitter, "submitter");
-        requireNonEmpty(txHash, "txHash");
 
         NonceAllocationEntity entity = allocationMapper.findBySubmitterAndNonce(submitter, nonce);
         if (entity == null) {
@@ -193,8 +193,10 @@ public class PostgresNonceRepository implements NonceRepository {
         // 状态检查
         String currentStatus = entity.getStatus();
         if (NonceAllocationStatus.USED.name().equals(currentStatus)) {
-            // 幂等性：如果已经是 USED 且 txHash 相同，允许（避免重复提交）
-            if (txHash.equals(entity.getTxHash())) {
+            // 幂等性：如果已经是 USED 且 txHash 相同（或都为空），允许（避免重复提交）
+            String currentTxHash = entity.getTxHash();
+            if ((txHash == null && (currentTxHash == null || currentTxHash.trim().isEmpty()))
+                    || (txHash != null && txHash.equals(currentTxHash))) {
                 return;
             }
             throw new NonceException("nonce 已使用，不能重复标记: " + submitter + "#" + nonce);
@@ -206,6 +208,7 @@ public class PostgresNonceRepository implements NonceRepository {
         // 更新状态
         entity.setStatus(NonceAllocationStatus.USED.name());
         entity.setTxHash(txHash);
+        entity.setReason(reason != null ? reason : "");
         entity.setLockOwner(null);
         entity.setLockedUntil(null);
         entity.setUpdatedAt(Instant.now());

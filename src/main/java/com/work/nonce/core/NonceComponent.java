@@ -33,8 +33,8 @@ public class NonceComponent {
         return nonceService.allocate(submitter);
     }
 
-    public void markUsed(String submitter, long nonce, String txHash) {
-        nonceService.markUsed(submitter, nonce, txHash);
+    public void markUsed(String submitter, long nonce, String txHash, String reason) {
+        nonceService.markUsed(submitter, nonce, txHash, reason);
     }
 
     public void markRecyclable(String submitter, long nonce, String reason) {

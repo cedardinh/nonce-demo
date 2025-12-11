@@ -16,6 +16,15 @@ public class NonceProperties {
     private Duration reservedTimeout = Duration.ofSeconds(30);
     private boolean degradeOnRedisFailure = true;
 
+    // 缓存配置
+    private boolean cacheEnabled = true;
+    private int cacheSize = 1000;
+    private Duration cacheTimeout = Duration.ofHours(1);
+
+    // 链上查询配置
+    private boolean chainQueryEnabled = true;
+    private int chainQueryMaxRetries = 3;
+
     public boolean isRedisEnabled() {
         return redisEnabled;
     }
@@ -46,6 +55,46 @@ public class NonceProperties {
 
     public void setDegradeOnRedisFailure(boolean degradeOnRedisFailure) {
         this.degradeOnRedisFailure = degradeOnRedisFailure;
+    }
+
+    public boolean isCacheEnabled() {
+        return cacheEnabled;
+    }
+
+    public void setCacheEnabled(boolean cacheEnabled) {
+        this.cacheEnabled = cacheEnabled;
+    }
+
+    public int getCacheSize() {
+        return cacheSize;
+    }
+
+    public void setCacheSize(int cacheSize) {
+        this.cacheSize = cacheSize;
+    }
+
+    public Duration getCacheTimeout() {
+        return cacheTimeout;
+    }
+
+    public void setCacheTimeout(Duration cacheTimeout) {
+        this.cacheTimeout = cacheTimeout;
+    }
+
+    public boolean isChainQueryEnabled() {
+        return chainQueryEnabled;
+    }
+
+    public void setChainQueryEnabled(boolean chainQueryEnabled) {
+        this.chainQueryEnabled = chainQueryEnabled;
+    }
+
+    public int getChainQueryMaxRetries() {
+        return chainQueryMaxRetries;
+    }
+
+    public void setChainQueryMaxRetries(int chainQueryMaxRetries) {
+        this.chainQueryMaxRetries = chainQueryMaxRetries;
     }
 }
 

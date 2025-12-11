@@ -13,18 +13,47 @@ public class NonceConfig {
     private final Duration reservedTimeout;
     private final boolean degradeOnRedisFailure;
 
+    // 缓存相关
+    private final boolean cacheEnabled;
+    private final int cacheSize;
+    private final Duration cacheTimeout;
+
+    // 链上查询相关
+    private final boolean chainQueryEnabled;
+    private final int chainQueryMaxRetries;
+
     public NonceConfig(boolean redisEnabled,
                        Duration lockTtl,
                        Duration reservedTimeout,
-                       boolean degradeOnRedisFailure) {
+                       boolean degradeOnRedisFailure,
+                       boolean cacheEnabled,
+                       int cacheSize,
+                       Duration cacheTimeout,
+                       boolean chainQueryEnabled,
+                       int chainQueryMaxRetries) {
         this.redisEnabled = redisEnabled;
         this.lockTtl = lockTtl;
         this.reservedTimeout = reservedTimeout;
         this.degradeOnRedisFailure = degradeOnRedisFailure;
+        this.cacheEnabled = cacheEnabled;
+        this.cacheSize = cacheSize;
+        this.cacheTimeout = cacheTimeout;
+        this.chainQueryEnabled = chainQueryEnabled;
+        this.chainQueryMaxRetries = chainQueryMaxRetries;
     }
 
     public static NonceConfig defaultConfig() {
-        return new NonceConfig(true, Duration.ofSeconds(10), Duration.ofSeconds(30), true);
+        return new NonceConfig(
+                true,
+                Duration.ofSeconds(10),
+                Duration.ofSeconds(30),
+                true,
+                true,
+                1000,
+                Duration.ofHours(1),
+                true,
+                3
+        );
     }
 
     public boolean isRedisEnabled() {
@@ -41,6 +70,26 @@ public class NonceConfig {
 
     public boolean isDegradeOnRedisFailure() {
         return degradeOnRedisFailure;
+    }
+
+    public boolean isCacheEnabled() {
+        return cacheEnabled;
+    }
+
+    public int getCacheSize() {
+        return cacheSize;
+    }
+
+    public Duration getCacheTimeout() {
+        return cacheTimeout;
+    }
+
+    public boolean isChainQueryEnabled() {
+        return chainQueryEnabled;
+    }
+
+    public int getChainQueryMaxRetries() {
+        return chainQueryMaxRetries;
     }
 }
 

@@ -42,7 +42,7 @@ public interface NonceRepository {
     /**
      * 成功执行业务后，标记 allocation 为 USED，并附加 txHash 等信息。
      */
-    void markUsed(String submitter, long nonce, String txHash);
+    void markUsed(String submitter, long nonce, String txHash, String reason);
 
     /**
      * 执行失败或放弃时，将 allocation 标记为 RECYCLABLE。

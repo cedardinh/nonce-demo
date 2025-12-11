@@ -56,3 +56,8 @@ nonce:
   lock-ttl: 10s
   reserved-timeout: 30s
   degrade-on-redis-failure: true
+  cache-enabled: true
+  cache-size: 1000
+  cache-timeout: 1h
+  chain-query-enabled: true
+  chain-query-max-retries: 3

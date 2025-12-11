@@ -1,5 +1,8 @@
 package com.work.nonce.core.service;
 
+import com.work.nonce.core.cache.NonceCacheEntry;
+import com.work.nonce.core.cache.NonceCacheManager;
+import com.work.nonce.core.chain.ChainNonceClient;
 import com.work.nonce.core.config.NonceConfig;
 import com.work.nonce.core.lock.RedisLockManager;
 import com.work.nonce.core.model.NonceAllocation;
@@ -33,13 +36,19 @@ public class NonceService {
     private final NonceRepository nonceRepository;
     private final RedisLockManager redisLockManager;
     private final NonceConfig config;
+    private final NonceCacheManager cacheManager;
+    private final ChainNonceClient chainNonceClient;
 
     public NonceService(NonceRepository nonceRepository,
                         RedisLockManager redisLockManager,
-                        NonceConfig config) {
+                        NonceConfig config,
+                        NonceCacheManager cacheManager,
+                        ChainNonceClient chainNonceClient) {
         this.nonceRepository = nonceRepository;
         this.redisLockManager = redisLockManager;
         this.config = config;
+        this.cacheManager = cacheManager;
+        this.chainNonceClient = chainNonceClient;
     }
 
     /**
@@ -67,47 +76,123 @@ public class NonceService {
                 lockOwner,
                 config.getLockTtl(),
                 config.isDegradeOnRedisFailure(),
-                () -> doAllocate(submitter, lockOwner)
+                () -> allocateInternal(submitter, lockOwner)
             );
         } else {
-            return doAllocate(submitter, lockOwner);
+            return allocateInternal(submitter, lockOwner);
         }
+    }
+
+    /**
+     * 包含缓存加速逻辑的分配实现。
+     */
+    private NonceAllocation allocateInternal(String submitter, String lockOwner) {
+        // 优先尝试缓存路径
+        if (cacheManager.isCacheEnabled()) {
+            Optional<NonceAllocation> cached = tryAllocateFromCache(submitter, lockOwner);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+        }
+        // 缓存 miss 或冲突失败，走完整刷新路径
+        return doAllocate(submitter, lockOwner);
     }
     
     /**
      * 执行实际的分配逻辑
      */
     private NonceAllocation doAllocate(String submitter, String lockOwner) {
-            // 在事务内锁定 submitter 状态行
-            SubmitterNonceState state = nonceRepository.lockAndLoadState(submitter);
-            
-            // 回收过期的 RESERVED 状态
-            nonceRepository.recycleExpiredReservations(submitter, config.getReservedTimeout());
+        // 在事务内锁定 submitter 状态行
+        SubmitterNonceState state = nonceRepository.lockAndLoadState(submitter);
+
+        // 回收过期的 RESERVED 状态
+        nonceRepository.recycleExpiredReservations(submitter, config.getReservedTimeout());
 
         // 查找可复用的空洞或生成新号
         long targetNonce = findOrGenerateNonce(submitter, state);
-        
+
         // 预留 nonce（使用唯一约束防止重复分配）
-        return nonceRepository.reserveNonce(submitter, targetNonce, lockOwner, config.getLockTtl());
+        NonceAllocation allocation = nonceRepository.reserveNonce(submitter, targetNonce, lockOwner, config.getReservedTimeout());
+
+        // 更新缓存为“下一个候选值”
+        if (cacheManager.isCacheEnabled()) {
+            long nextCandidate = Math.max(state.getNextLocalNonce(), targetNonce + 1);
+            cacheManager.put(submitter, new NonceCacheEntry(Instant.now(), nextCandidate));
+        }
+
+        return allocation;
     }
     
     /**
      * 查找可复用的nonce或生成新的nonce
      */
     private long findOrGenerateNonce(String submitter, SubmitterNonceState state) {
-            Optional<NonceAllocation> reusable = nonceRepository.findOldestRecyclable(submitter);
-            
-            if (reusable.isPresent()) {
+        Optional<NonceAllocation> reusable = nonceRepository.findOldestRecyclable(submitter);
+        if (reusable.isPresent()) {
             return reusable.get().getNonce();
         }
-        
-                // 没有可复用的，使用新的 nonce
-        long targetNonce = state.getNextLocalNonce();
-                state.setNextLocalNonce(targetNonce + 1);
-                state.setUpdatedAt(Instant.now());
-                nonceRepository.updateState(state);
-        
+
+        // 没有可复用的，使用新的 nonce，必要时与链上对齐
+        long dbNext = state.getNextLocalNonce();
+        long chainNext = fetchChainNext(submitter, dbNext);
+        long targetNonce = Math.max(dbNext, chainNext);
+
+        state.setNextLocalNonce(targetNonce + 1);
+        state.setUpdatedAt(Instant.now());
+        nonceRepository.updateState(state);
+
         return targetNonce;
+    }
+
+    private long fetchChainNext(String submitter, long fallback) {
+        if (!config.isChainQueryEnabled()) {
+            return fallback;
+        }
+        long chainNonce = fallback;
+        for (int i = 0; i < config.getChainQueryMaxRetries(); i++) {
+            try {
+                chainNonce = chainNonceClient.getLatestNonce(submitter);
+                break;
+            } catch (Exception e) {
+                if (i == config.getChainQueryMaxRetries() - 1) {
+                    // 最后一次重试失败，回退到 fallback
+                    return fallback;
+                }
+            }
+        }
+        // 如果链上返回负数，视作不可用
+        if (chainNonce < 0) {
+            return fallback;
+        }
+        return chainNonce;
+    }
+
+    private Optional<NonceAllocation> tryAllocateFromCache(String submitter, String lockOwner) {
+        Optional<NonceCacheEntry> entryOpt = cacheManager.getIfPresent(submitter);
+        if (!entryOpt.isPresent()) {
+            return Optional.empty();
+        }
+        NonceCacheEntry entry = entryOpt.get();
+        long candidate = entry.getAndIncrementNonce();
+        try {
+            // 为了保证全局正确性，必须推进 submitter 的 DB 游标，避免缓存分配导致游标落后后续“倒退发号”
+            SubmitterNonceState state = nonceRepository.lockAndLoadState(submitter);
+            if (candidate < state.getNextLocalNonce()) {
+                // 缓存落后，丢弃缓存，走慢路径重新对齐
+                cacheManager.invalidate(submitter);
+                return Optional.empty();
+            }
+            state.setNextLocalNonce(candidate + 1);
+            state.setUpdatedAt(Instant.now());
+            nonceRepository.updateState(state);
+
+            NonceAllocation allocation = nonceRepository.reserveNonce(submitter, candidate, lockOwner, config.getReservedTimeout());
+            return Optional.of(allocation);
+        } catch (Exception ex) {
+            // 并发冲突/状态异常，清理缓存后走慢路径
+            cacheManager.invalidate(submitter);
+            return Optional.empty();
+        }
     }
     
     /**
@@ -128,12 +213,14 @@ public class NonceService {
      * 注意：此方法必须在事务中执行，确保状态更新的原子性
      */
     @Transactional(isolation = Isolation.READ_COMMITTED, timeout = TRANSACTION_TIMEOUT_SECONDS)
-    public void markUsed(String submitter, long nonce, String txHash) {
+    public void markUsed(String submitter, long nonce, String txHash, String reason) {
         requireNonEmpty(submitter, "submitter");
-        requireNonEmpty(txHash, "txHash");
         requireNonNegative(nonce, "nonce");
-        
-        nonceRepository.markUsed(submitter, nonce, txHash);
+
+        String finalTxHash = (txHash == null || txHash.trim().isEmpty()) ? null : txHash.trim();
+        String finalReason = (reason == null) ? "" : reason;
+
+        nonceRepository.markUsed(submitter, nonce, finalTxHash, finalReason);
     }
 
     /**

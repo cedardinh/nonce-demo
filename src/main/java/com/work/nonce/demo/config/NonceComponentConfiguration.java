@@ -1,6 +1,8 @@
 package com.work.nonce.demo.config;
 
 import com.work.nonce.core.NonceComponent;
+import com.work.nonce.core.cache.NonceCacheManager;
+import com.work.nonce.core.chain.ChainNonceClient;
 import com.work.nonce.core.config.NonceConfig;
 import com.work.nonce.core.execution.NonceExecutionTemplate;
 import com.work.nonce.core.service.NonceService;
@@ -36,8 +38,27 @@ public class NonceComponentConfiguration {
                 properties.isRedisEnabled(),
                 properties.getLockTtl(),
                 properties.getReservedTimeout(),
-                properties.isDegradeOnRedisFailure()
+                properties.isDegradeOnRedisFailure(),
+                properties.isCacheEnabled(),
+                properties.getCacheSize(),
+                properties.getCacheTimeout(),
+                properties.isChainQueryEnabled(),
+                properties.getChainQueryMaxRetries()
         );
+    }
+
+    @Bean
+    public ChainNonceClient chainNonceClient(ChainClient chainClient) {
+        // demo 的 queryLatestNonce 返回的是“已使用的最高 nonce”，这里转换为“下一个可用 nonce”
+        return submitter -> {
+            long latestUsed = chainClient.queryLatestNonce(submitter);
+            return latestUsed < 0 ? -1L : (latestUsed + 1);
+        };
+    }
+
+    @Bean
+    public NonceCacheManager nonceCacheManager(NonceConfig nonceConfig) {
+        return new NonceCacheManager(nonceConfig);
     }
 
     // NonceService 通过 @Service 自动扫描，不需要手动创建 Bean

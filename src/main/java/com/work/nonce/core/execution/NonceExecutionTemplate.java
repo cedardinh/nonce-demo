@@ -60,14 +60,14 @@ public class NonceExecutionTemplate {
             // NonceException直接抛出，不重复处理
             throw ex;
         } catch (Exception ex) {
-            // 其他异常：标记为可回收，避免nonce泄漏
+            // 其他异常：保守处理，默认将 nonce 视为“可能已消耗”，避免误回收导致 nonce 冲突风险
             if (allocation != null) {
                 try {
-                    String reason = "handler exception: " + (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName());
-                    nonceService.markRecyclable(submitter, allocation.getNonce(), reason);
+                    String reason = "handler exception (unknown if submitted): "
+                            + (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName());
+                    nonceService.markUsed(submitter, allocation.getNonce(), null, reason);
                 } catch (Exception recycleEx) {
-                    // 如果回收失败，包装异常信息
-                    throw new NonceException("handler 执行异常且回收nonce失败", ex);
+                    throw new NonceException("handler 执行异常且标记 nonce 失败", ex);
                 }
             }
             throw new NonceException("handler 执行异常", ex);
@@ -94,10 +94,17 @@ public class NonceExecutionTemplate {
      * 根据执行结果更新allocation状态
      */
     private void updateAllocationStatus(String submitter, NonceAllocation allocation, NonceExecutionResult result) {
+        // 只要 nonce 被认为已消耗，就必须标记为 USED，避免被回收复用造成 nonce 冲突风险
+        if (result.isNonceConsumed()) {
+            String reason = result.getReason() != null ? result.getReason() : "";
+            nonceService.markUsed(submitter, allocation.getNonce(), result.getTxHash(), reason);
+            return;
+        }
+
         switch (result.getOutcome()) {
             case SUCCESS:
                 // 业务成功，标记为已使用
-                nonceService.markUsed(submitter, allocation.getNonce(), result.getTxHash());
+                nonceService.markUsed(submitter, allocation.getNonce(), result.getTxHash(), null);
                 break;
                 
             case NON_RETRYABLE_FAILURE:
