@@ -1,8 +1,11 @@
 package com.work.nonce.demo.config;
 
+import com.work.nonce.core.config.AllocationStrategy;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 仅存在于 demo/业务包，用于从 application.yml 读取配置。
@@ -16,14 +19,55 @@ public class NonceProperties {
     private Duration reservedTimeout = Duration.ofSeconds(30);
     private boolean degradeOnRedisFailure = true;
 
+    /**
+     * 分配策略：
+     * - CACHE_RANGE：适用于 submitter 粘性路由/一致性哈希场景（默认）
+     * - DB_ONLY：适用于 submitter 轮询到不同节点场景（避免本地缓存 thrash）
+     */
+    private AllocationStrategy allocationStrategy = AllocationStrategy.CACHE_RANGE;
+
+    /**
+     * submitter 级别覆盖：这些 submitter 强制走 DB_ONLY。
+     *
+     * <p>适用于混合场景：大多数 submitter 可粘性路由，但少数 submitter 会被轮询到不同节点。</p>
+     */
+    private List<String> dbOnlySubmitters = new ArrayList<>();
+
     // 缓存配置
     private boolean cacheEnabled = true;
     private int cacheSize = 1000;
     private Duration cacheTimeout = Duration.ofHours(1);
+    private int preAllocateSize = 50;
 
     // 链上查询配置
     private boolean chainQueryEnabled = true;
     private int chainQueryMaxRetries = 3;
+
+    // 过期回收降频
+    private Duration recycleThrottle = Duration.ofSeconds(5);
+
+    /**
+     * PENDING（隔离态）的最大持续时间。超过该时间会触发对账任务进行“定案”（ACCEPTED 或 RECYCLABLE）。
+     */
+    private Duration pendingMaxAge = Duration.ofMinutes(5);
+
+    /**
+     * 是否启用定时对账任务（处理超时 RESERVED -> PENDING，及 PENDING 定案）。
+     */
+    private boolean reconcileEnabled = true;
+
+    /**
+     * 每次对账任务处理的最大记录数（批量大小）。
+     */
+    private int reconcileBatchSize = 200;
+
+    /**
+     * 对账任务执行间隔（fixedDelay，毫秒）。
+     */
+    private long reconcileIntervalMs = 5000L;
+
+    // 账户是否可能被外部系统共用
+    private boolean sharedAccount = false;
 
     public boolean isRedisEnabled() {
         return redisEnabled;
@@ -57,6 +101,22 @@ public class NonceProperties {
         this.degradeOnRedisFailure = degradeOnRedisFailure;
     }
 
+    public AllocationStrategy getAllocationStrategy() {
+        return allocationStrategy;
+    }
+
+    public void setAllocationStrategy(AllocationStrategy allocationStrategy) {
+        this.allocationStrategy = allocationStrategy;
+    }
+
+    public List<String> getDbOnlySubmitters() {
+        return dbOnlySubmitters;
+    }
+
+    public void setDbOnlySubmitters(List<String> dbOnlySubmitters) {
+        this.dbOnlySubmitters = dbOnlySubmitters;
+    }
+
     public boolean isCacheEnabled() {
         return cacheEnabled;
     }
@@ -81,6 +141,14 @@ public class NonceProperties {
         this.cacheTimeout = cacheTimeout;
     }
 
+    public int getPreAllocateSize() {
+        return preAllocateSize;
+    }
+
+    public void setPreAllocateSize(int preAllocateSize) {
+        this.preAllocateSize = preAllocateSize;
+    }
+
     public boolean isChainQueryEnabled() {
         return chainQueryEnabled;
     }
@@ -95,6 +163,54 @@ public class NonceProperties {
 
     public void setChainQueryMaxRetries(int chainQueryMaxRetries) {
         this.chainQueryMaxRetries = chainQueryMaxRetries;
+    }
+
+    public Duration getRecycleThrottle() {
+        return recycleThrottle;
+    }
+
+    public void setRecycleThrottle(Duration recycleThrottle) {
+        this.recycleThrottle = recycleThrottle;
+    }
+
+    public Duration getPendingMaxAge() {
+        return pendingMaxAge;
+    }
+
+    public void setPendingMaxAge(Duration pendingMaxAge) {
+        this.pendingMaxAge = pendingMaxAge;
+    }
+
+    public boolean isReconcileEnabled() {
+        return reconcileEnabled;
+    }
+
+    public void setReconcileEnabled(boolean reconcileEnabled) {
+        this.reconcileEnabled = reconcileEnabled;
+    }
+
+    public int getReconcileBatchSize() {
+        return reconcileBatchSize;
+    }
+
+    public void setReconcileBatchSize(int reconcileBatchSize) {
+        this.reconcileBatchSize = reconcileBatchSize;
+    }
+
+    public long getReconcileIntervalMs() {
+        return reconcileIntervalMs;
+    }
+
+    public void setReconcileIntervalMs(long reconcileIntervalMs) {
+        this.reconcileIntervalMs = reconcileIntervalMs;
+    }
+
+    public boolean isSharedAccount() {
+        return sharedAccount;
+    }
+
+    public void setSharedAccount(boolean sharedAccount) {
+        this.sharedAccount = sharedAccount;
     }
 }
 

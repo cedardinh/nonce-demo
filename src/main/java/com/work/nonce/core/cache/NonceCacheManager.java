@@ -4,7 +4,6 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.work.nonce.core.config.NonceConfig;
 
-import java.time.Duration;
 import java.util.Optional;
 
 /**
@@ -13,12 +12,10 @@ import java.util.Optional;
 public class NonceCacheManager {
 
     private final Cache<String, NonceCacheEntry> cache;
-    private final Duration cacheTimeout;
     private final boolean cacheEnabled;
 
     public NonceCacheManager(NonceConfig config) {
         this.cacheEnabled = config.isCacheEnabled();
-        this.cacheTimeout = config.getCacheTimeout();
         this.cache = Caffeine.newBuilder()
                 .maximumSize(config.getCacheSize())
                 .expireAfterWrite(config.getCacheTimeout())
@@ -37,7 +34,8 @@ public class NonceCacheManager {
         if (entry == null) {
             return Optional.empty();
         }
-        if (entry.isExpired(cacheTimeout)) {
+        // Caffeine 会自动处理超时；如果区间已耗尽则淘汰
+        if (entry.isExhausted()) {
             cache.invalidate(submitter);
             return Optional.empty();
         }

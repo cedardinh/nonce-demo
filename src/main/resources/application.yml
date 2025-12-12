@@ -56,8 +56,29 @@ nonce:
   lock-ttl: 10s
   reserved-timeout: 30s
   degrade-on-redis-failure: true
+  # 分配策略：
+  # - CACHE_RANGE：适用于 submitter 粘性路由/一致性哈希场景（默认，启用本地缓存+区间预分配）
+  # - DB_ONLY：适用于 submitter 轮询到不同节点场景（禁用本地缓存收益，强制 batchSize=1）
+  allocation-strategy: CACHE_RANGE
+  # 混合场景覆盖：这些 submitter 强制走 DB_ONLY（即使全局策略是 CACHE_RANGE）
+  # 例：
+  # db-only-submitters:
+  #   - "0xabc..."
+  #   - "0xdef..."
+  db-only-submitters: []
   cache-enabled: true
   cache-size: 1000
   cache-timeout: 1h
+  pre-allocate-size: 50
   chain-query-enabled: true
   chain-query-max-retries: 3
+  recycle-throttle: 5s
+  # PENDING（隔离态）最大持续时间：超过后由对账任务“定案”（ACCEPTED 或 RECYCLABLE）
+  pending-max-age: 5m
+  # 是否启用定时对账任务（处理超时 RESERVED -> PENDING，以及 PENDING 定案）
+  reconcile-enabled: true
+  # 每次对账任务最大处理条数
+  reconcile-batch-size: 200
+  # 对账任务执行间隔（毫秒）
+  reconcile-interval-ms: 5000
+  shared-account: false

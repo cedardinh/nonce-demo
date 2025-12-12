@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.work.nonce.core.repository.mapper.SubmitterNonceStateMapper">
+
+  <select id="lockAndLoadBySubmitter" resultType="com.work.nonce.core.repository.entity.SubmitterNonceStateEntity">
+    SELECT submitter, last_chain_nonce, next_local_nonce, updated_at, created_at
+    FROM submitter_nonce_state
+    WHERE submitter = #{submitter}
+    FOR UPDATE
+  </select>
+
+  <insert id="insertIfNotExists">
+    INSERT INTO submitter_nonce_state(
+      submitter, last_chain_nonce, next_local_nonce, updated_at, created_at
+    )
+    VALUES(
+      #{submitter}, #{lastChainNonce}, #{nextLocalNonce}, #{updatedAt}, #{createdAt}
+    )
+    ON CONFLICT(submitter) DO NOTHING
+  </insert>
+
+  <select id="allocateNonceRangeStart" resultType="java.lang.Long">
+    UPDATE submitter_nonce_state
+    SET next_local_nonce = GREATEST(next_local_nonce, #{minNext}) + #{batchSize},
+        updated_at = #{now}
+    WHERE submitter = #{submitter}
+    RETURNING next_local_nonce - #{batchSize}
+  </select>
+
+</mapper>

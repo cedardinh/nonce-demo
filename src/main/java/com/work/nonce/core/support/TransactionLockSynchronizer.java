@@ -36,55 +36,52 @@ public final class TransactionLockSynchronizer {
                                         boolean degradeOnFailure,
                                         Supplier<T> operation) {
         boolean locked = false;
+
+        // 1) 仅在“加锁阶段”允许降级
         try {
-            // 尝试获取锁
             locked = lockManager.tryLock(submitter, lockOwner, lockTtl);
-            
-            // 如果获取锁失败且不允许降级，抛出异常
-            if (!locked && !degradeOnFailure) {
-                throw new NonceException("Redis 加锁失败，且未开启降级");
+        } catch (Exception lockEx) {
+            if (!degradeOnFailure) {
+                throw new NonceException("Redis 加锁异常", lockEx);
             }
-            
-            // 如果获取到锁，注册事务同步回调
-            if (locked && TransactionSynchronizationManager.isActualTransactionActive()) {
-                final String finalSubmitter = submitter;
-                final String finalLockOwner = lockOwner;
-                
-                TransactionSynchronizationManager.registerSynchronization(
-                    new TransactionSynchronization() {
-                        @Override
-                        public void afterCommit() {
-                            // 事务提交后释放锁
+            locked = false;
+        }
+
+        // 如果获取锁失败且不允许降级，抛出异常
+        if (!locked && !degradeOnFailure) {
+            throw new NonceException("Redis 加锁失败，且未开启降级");
+        }
+
+        // 2) 如果获取到锁，注册事务同步回调（确保锁最终释放）
+        if (locked && TransactionSynchronizationManager.isActualTransactionActive()) {
+            final String finalSubmitter = submitter;
+            final String finalLockOwner = lockOwner;
+
+            TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        releaseLockSafely(lockManager, finalSubmitter, finalLockOwner);
+                    }
+
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status != STATUS_COMMITTED) {
                             releaseLockSafely(lockManager, finalSubmitter, finalLockOwner);
                         }
-                        
-                        @Override
-                        public void afterCompletion(int status) {
-                            // 如果事务回滚，也需要释放锁
-                            if (status != STATUS_COMMITTED) {
-                                releaseLockSafely(lockManager, finalSubmitter, finalLockOwner);
-                            }
-                        }
                     }
-                );
-            }
-            
-            // 执行操作
+                }
+            );
+        }
+
+        // 3) 执行业务操作
+        try {
             return operation.get();
-            
-        } catch (NonceException e) {
-            // 重新抛出NonceException
-            throw e;
-        } catch (Exception e) {
-            // 如果是Redis异常且允许降级，继续执行
-            if (degradeOnFailure && !locked) {
-                return operation.get();
-            }
-            // 如果操作失败且锁已获取，立即释放锁（不在事务中）
+        } finally {
+            // 非事务场景下，若拿到锁需要确保释放（事务场景由同步回调释放）
             if (locked && !TransactionSynchronizationManager.isActualTransactionActive()) {
                 releaseLockSafely(lockManager, submitter, lockOwner);
             }
-            throw new NonceException("Redis 加锁异常", e);
         }
     }
     

@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.work.nonce.core.repository.mapper.NonceAllocationMapper">
+
+  <update id="recycleExpiredReservations">
+    UPDATE submitter_nonce_allocation
+    SET status = 'PENDING',
+        lock_owner = NULL,
+        locked_until = NULL,
+        updated_at = #{now},
+        reason = '超时进入PENDING(待对账)'
+    WHERE submitter = #{submitter}
+      AND status = 'RESERVED'
+      AND locked_until IS NOT NULL
+      AND locked_until &lt; #{expireBefore}
+  </update>
+
+  <select id="findOldestRecyclable" resultType="com.work.nonce.core.repository.entity.NonceAllocationEntity">
+    SELECT id, submitter, nonce, status, lock_owner, locked_until, tx_hash, reason, updated_at, created_at
+    FROM submitter_nonce_allocation
+    WHERE submitter = #{submitter}
+      AND status = 'RECYCLABLE'
+    ORDER BY nonce ASC
+    LIMIT 1
+  </select>
+
+  <select id="reserveOldestRecyclable" resultType="com.work.nonce.core.repository.entity.NonceAllocationEntity">
+    WITH cte AS (
+      SELECT id
+      FROM submitter_nonce_allocation
+      WHERE submitter = #{submitter}
+        AND status = 'RECYCLABLE'
+      ORDER BY nonce ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE submitter_nonce_allocation a
+    SET status = 'RESERVED',
+        lock_owner = #{lockOwner},
+        locked_until = #{lockedUntil},
+        updated_at = #{now}
+    FROM cte
+    WHERE a.id = cte.id
+    RETURNING a.id, a.submitter, a.nonce, a.status, a.lock_owner, a.locked_until, a.tx_hash, a.reason, a.updated_at, a.created_at
+  </select>
+
+  <select id="findBySubmitterAndNonce" resultType="com.work.nonce.core.repository.entity.NonceAllocationEntity">
+    SELECT id, submitter, nonce, status, lock_owner, locked_until, tx_hash, reason, updated_at, created_at
+    FROM submitter_nonce_allocation
+    WHERE submitter = #{submitter}
+      AND nonce = #{nonce}
+  </select>
+
+  <insert id="reserveNonce">
+    INSERT INTO submitter_nonce_allocation(
+      submitter, nonce, status, lock_owner, locked_until, updated_at, created_at
+    )
+    VALUES(
+      #{submitter}, #{nonce}, 'RESERVED', #{lockOwner}, #{lockedUntil}, #{updatedAt}, #{createdAt}
+    )
+    ON CONFLICT(submitter, nonce)
+    DO UPDATE SET status = 'RESERVED',
+                  lock_owner = #{lockOwner},
+                  locked_until = #{lockedUntil},
+                  updated_at = #{updatedAt}
+    WHERE submitter_nonce_allocation.status = 'RECYCLABLE'
+  </insert>
+
+  <insert id="insertRecyclableRange">
+    INSERT INTO submitter_nonce_allocation(
+      submitter, nonce, status, updated_at, created_at, reason
+    )
+    SELECT #{submitter}, gs, 'RECYCLABLE', #{now}, #{now}, 'preallocated'
+    FROM generate_series(#{startNonce}, #{endNonceInclusive}) AS gs
+    ON CONFLICT(submitter, nonce) DO NOTHING
+  </insert>
+
+  <select id="findExpiredReservations" resultType="com.work.nonce.core.repository.entity.NonceAllocationEntity">
+    SELECT id, submitter, nonce, status, lock_owner, locked_until, tx_hash, reason, updated_at, created_at
+    FROM submitter_nonce_allocation
+    WHERE submitter = #{submitter}
+      AND status = 'RESERVED'
+      AND locked_until IS NOT NULL
+      AND locked_until &lt; #{expireBefore}
+  </select>
+
+  <update id="markAcceptedIfAllowed">
+    UPDATE submitter_nonce_allocation
+    SET status = 'ACCEPTED',
+        tx_hash = #{txHash},
+        reason = #{reason},
+        lock_owner = NULL,
+        locked_until = NULL,
+        updated_at = #{now}
+    WHERE submitter = #{submitter}
+      AND nonce = #{nonce}
+      AND status IN ('RESERVED', 'PENDING')
+  </update>
+
+  <update id="markRecyclableIfAllowed">
+    UPDATE submitter_nonce_allocation
+    SET status = 'RECYCLABLE',
+        tx_hash = NULL,
+        reason = #{reason},
+        lock_owner = NULL,
+        locked_until = NULL,
+        updated_at = #{now}
+    WHERE submitter = #{submitter}
+      AND nonce = #{nonce}
+      AND status IN ('RESERVED', 'PENDING')
+  </update>
+
+  <update id="markPendingIfReserved">
+    UPDATE submitter_nonce_allocation
+    SET status = 'PENDING',
+        reason = #{reason},
+        lock_owner = NULL,
+        locked_until = NULL,
+        updated_at = #{now}
+    WHERE submitter = #{submitter}
+      AND nonce = #{nonce}
+      AND status = 'RESERVED'
+  </update>
+
+  <select id="findExpiredReservedGlobal" resultType="com.work.nonce.core.repository.entity.NonceAllocationEntity">
+    SELECT id, submitter, nonce, status, lock_owner, locked_until, tx_hash, reason, updated_at, created_at
+    FROM submitter_nonce_allocation
+    WHERE status = 'RESERVED'
+      AND locked_until IS NOT NULL
+      AND locked_until &lt; #{expireBefore}
+    ORDER BY locked_until ASC
+    LIMIT #{limit}
+  </select>
+
+  <select id="findStalePendingGlobal" resultType="com.work.nonce.core.repository.entity.NonceAllocationEntity">
+    SELECT id, submitter, nonce, status, lock_owner, locked_until, tx_hash, reason, updated_at, created_at
+    FROM submitter_nonce_allocation
+    WHERE status = 'PENDING'
+      AND updated_at &lt; #{before}
+    ORDER BY updated_at ASC
+    LIMIT #{limit}
+  </select>
+
+  <update id="touchPending">
+    UPDATE submitter_nonce_allocation
+    SET updated_at = #{now},
+        reason = #{reason}
+    WHERE submitter = #{submitter}
+      AND nonce = #{nonce}
+      AND status = 'PENDING'
+  </update>
+
+</mapper>

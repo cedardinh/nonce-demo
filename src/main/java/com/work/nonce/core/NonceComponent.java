@@ -40,5 +40,9 @@ public class NonceComponent {
     public void markRecyclable(String submitter, long nonce, String reason) {
         nonceService.markRecyclable(submitter, nonce, reason);
     }
+
+    public void markPending(String submitter, long nonce, String reason) {
+        nonceService.markPending(submitter, nonce, reason);
+    }
 }
 

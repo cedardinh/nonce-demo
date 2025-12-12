@@ -39,18 +39,27 @@ public class NonceComponentConfiguration {
                 properties.getLockTtl(),
                 properties.getReservedTimeout(),
                 properties.isDegradeOnRedisFailure(),
+                properties.getAllocationStrategy(),
+                properties.getDbOnlySubmitters() == null ? java.util.Collections.emptySet() : new java.util.HashSet<>(properties.getDbOnlySubmitters()),
                 properties.isCacheEnabled(),
                 properties.getCacheSize(),
                 properties.getCacheTimeout(),
+                properties.getPreAllocateSize(),
                 properties.isChainQueryEnabled(),
-                properties.getChainQueryMaxRetries()
+                properties.getChainQueryMaxRetries(),
+                properties.getRecycleThrottle(),
+                properties.getPendingMaxAge(),
+                properties.isReconcileEnabled(),
+                properties.getReconcileBatchSize(),
+                properties.isSharedAccount()
         );
     }
 
     @Bean
     public ChainNonceClient chainNonceClient(ChainClient chainClient) {
         // demo 的 queryLatestNonce 返回的是“已使用的最高 nonce”，这里转换为“下一个可用 nonce”
-        return submitter -> {
+        return (submitter, tag) -> {
+            // demo 不区分 PENDING/LATEST/SAFE...，统一用 latestUsed+1 模拟 next nonce
             long latestUsed = chainClient.queryLatestNonce(submitter);
             return latestUsed < 0 ? -1L : (latestUsed + 1);
         };

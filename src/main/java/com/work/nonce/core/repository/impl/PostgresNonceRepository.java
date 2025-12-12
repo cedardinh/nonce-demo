@@ -135,6 +135,20 @@ public class PostgresNonceRepository implements NonceRepository {
     }
 
     @Override
+    public List<NonceAllocation> findExpiredReservations(String submitter, Instant now) {
+        requireNonEmpty(submitter, "submitter");
+        if (now == null) {
+            now = Instant.now();
+        }
+        List<NonceAllocationEntity> expiredEntities = allocationMapper.findExpiredReservations(submitter, now);
+        List<NonceAllocation> result = new ArrayList<>(expiredEntities.size());
+        for (NonceAllocationEntity entity : expiredEntities) {
+            result.add(convertToAllocation(entity));
+        }
+        return result;
+    }
+
+    @Override
     public Optional<NonceAllocation> findOldestRecyclable(String submitter) {
         requireNonEmpty(submitter, "submitter");
 
@@ -143,6 +157,48 @@ public class PostgresNonceRepository implements NonceRepository {
             return Optional.empty();
         }
         return Optional.of(convertToAllocation(entity));
+    }
+
+    @Override
+    public Optional<NonceAllocation> reserveOldestRecyclable(String submitter, String lockOwner, Duration lockTtl) {
+        requireNonEmpty(submitter, "submitter");
+        requireNonEmpty(lockOwner, "lockOwner");
+        requirePositive(lockTtl, "lockTtl");
+
+        Instant now = Instant.now();
+        Instant lockedUntil = now.plus(lockTtl);
+
+        NonceAllocationEntity entity = allocationMapper.reserveOldestRecyclable(submitter, lockOwner, lockedUntil, now);
+        if (entity == null) {
+            return Optional.empty();
+        }
+        return Optional.of(convertToAllocation(entity));
+    }
+
+    @Override
+    public long allocateNonceRangeStart(String submitter, long minNext, int batchSize, Instant now) {
+        requireNonEmpty(submitter, "submitter");
+        if (batchSize <= 0) {
+            throw new NonceException("batchSize 必须为正数: " + batchSize);
+        }
+        if (now == null) {
+            now = Instant.now();
+        }
+
+        // 确保状态存在（并发安全）
+        stateMapper.insertIfNotExists(submitter, INITIAL_LAST_CHAIN_NONCE, INITIAL_NEXT_LOCAL_NONCE, now, now);
+
+        Long start = stateMapper.allocateNonceRangeStart(submitter, minNext, batchSize, now);
+        if (start == null) {
+            throw new NonceException("预分配 nonce 区间失败: " + submitter);
+        }
+
+        // 预插入 RECYCLABLE 占位，防止 state 提前推进导致宕机后产生“不可见空洞”
+        // 区间为 [start, start+batchSize-1]
+        long endInclusive = start + batchSize - 1;
+        allocationMapper.insertRecyclableRange(submitter, start, endInclusive, now);
+
+        return start;
     }
 
     @Override
@@ -156,7 +212,8 @@ public class PostgresNonceRepository implements NonceRepository {
         
         // 检查是否已存在且为 USED 状态（提前检查，避免不必要的数据库操作）
         NonceAllocationEntity existing = allocationMapper.findBySubmitterAndNonce(submitter, nonce);
-        if (existing != null && NonceAllocationStatus.USED.name().equals(existing.getStatus())) {
+        if (existing != null
+                && (NonceAllocationStatus.ACCEPTED.name().equals(existing.getStatus()) || "USED".equals(existing.getStatus()))) {
             throw new NonceException("nonce 已使用，不能重新分配: " + submitter + "#" + nonce);
         }
         
@@ -166,7 +223,8 @@ public class PostgresNonceRepository implements NonceRepository {
         if (updated == 0) {
             // 如果更新失败，再次检查状态（可能是并发导致状态变为USED）
             existing = allocationMapper.findBySubmitterAndNonce(submitter, nonce);
-            if (existing != null && NonceAllocationStatus.USED.name().equals(existing.getStatus())) {
+            if (existing != null
+                    && (NonceAllocationStatus.ACCEPTED.name().equals(existing.getStatus()) || "USED".equals(existing.getStatus()))) {
                 throw new NonceException("nonce 已使用，不能重新分配: " + submitter + "#" + nonce);
             }
             throw new NonceException("reserve nonce 失败: " + submitter + "#" + nonce);
@@ -184,72 +242,78 @@ public class PostgresNonceRepository implements NonceRepository {
     @Override
     public void markUsed(String submitter, long nonce, String txHash, String reason) {
         requireNonEmpty(submitter, "submitter");
+        Instant now = Instant.now();
+        int updated = allocationMapper.markAcceptedIfAllowed(submitter, nonce, txHash, reason != null ? reason : "", now);
+        if (updated > 0) {
+            return;
+        }
 
-        NonceAllocationEntity entity = allocationMapper.findBySubmitterAndNonce(submitter, nonce);
-        if (entity == null) {
+        // updated == 0：可能是并发/幂等。做一次最小查询校验（避免读改写覆盖）。
+        NonceAllocationEntity existing = allocationMapper.findBySubmitterAndNonce(submitter, nonce);
+        if (existing == null) {
             throw new NonceException("未找到 allocation: " + submitter + "#" + nonce);
         }
-        
-        // 状态检查
-        String currentStatus = entity.getStatus();
-        if (NonceAllocationStatus.USED.name().equals(currentStatus)) {
-            // 幂等性：如果已经是 USED 且 txHash 相同（或都为空），允许（避免重复提交）
-            String currentTxHash = entity.getTxHash();
+        String st = existing.getStatus();
+        if (NonceAllocationStatus.ACCEPTED.name().equals(st) || "USED".equals(st)) {
+            String currentTxHash = existing.getTxHash();
             if ((txHash == null && (currentTxHash == null || currentTxHash.trim().isEmpty()))
                     || (txHash != null && txHash.equals(currentTxHash))) {
                 return;
             }
-            throw new NonceException("nonce 已使用，不能重复标记: " + submitter + "#" + nonce);
+            throw new NonceException("nonce 已 ACCEPTED，txHash 不一致: " + submitter + "#" + nonce);
         }
-        if (NonceAllocationStatus.RECYCLABLE.name().equals(currentStatus)) {
-            throw new NonceException("nonce 已回收，不能标记为 USED: " + submitter + "#" + nonce);
+        if (NonceAllocationStatus.RECYCLABLE.name().equals(st)) {
+            throw new NonceException("nonce 已回收，不能标记为 ACCEPTED: " + submitter + "#" + nonce);
         }
-        
-        // 更新状态
-        entity.setStatus(NonceAllocationStatus.USED.name());
-        entity.setTxHash(txHash);
-        entity.setReason(reason != null ? reason : "");
-        entity.setLockOwner(null);
-        entity.setLockedUntil(null);
-        entity.setUpdatedAt(Instant.now());
-        
-        int updated = allocationMapper.updateById(entity);
-        if (updated == 0) {
-            throw new NonceException("标记 nonce 为 USED 失败: " + submitter + "#" + nonce);
-        }
+        throw new NonceException("标记 nonce 为 ACCEPTED 失败: " + submitter + "#" + nonce + " status=" + st);
     }
 
     @Override
     public void markRecyclable(String submitter, long nonce, String reason) {
         requireNonEmpty(submitter, "submitter");
-
-        NonceAllocationEntity entity = allocationMapper.findBySubmitterAndNonce(submitter, nonce);
-        if (entity == null) {
-            throw new NonceException("未找到 allocation: " + submitter + "#" + nonce);
-        }
-        
-        // 状态检查：USED 状态不能回收（保证数据一致性）
-        if (NonceAllocationStatus.USED.name().equals(entity.getStatus())) {
-            throw new NonceException("nonce 已使用，不能回收: " + submitter + "#" + nonce);
-        }
-        
-        // 如果已经是RECYCLABLE状态，幂等处理
-        if (NonceAllocationStatus.RECYCLABLE.name().equals(entity.getStatus())) {
+        Instant now = Instant.now();
+        int updated = allocationMapper.markRecyclableIfAllowed(submitter, nonce, reason != null ? reason : "", now);
+        if (updated > 0) {
             return;
         }
-        
-        // 更新状态
-        entity.setStatus(NonceAllocationStatus.RECYCLABLE.name());
-        entity.setLockOwner(null);
-        entity.setLockedUntil(null);
-        entity.setReason(reason != null ? reason : "");
-        entity.setTxHash(null);
-        entity.setUpdatedAt(Instant.now());
-        
-        int updated = allocationMapper.updateById(entity);
-        if (updated == 0) {
-            throw new NonceException("标记 nonce 为 RECYCLABLE 失败: " + submitter + "#" + nonce);
+
+        NonceAllocationEntity existing = allocationMapper.findBySubmitterAndNonce(submitter, nonce);
+        if (existing == null) {
+            throw new NonceException("未找到 allocation: " + submitter + "#" + nonce);
         }
+        String st = existing.getStatus();
+        if (NonceAllocationStatus.RECYCLABLE.name().equals(st)) {
+            return;
+        }
+        if (NonceAllocationStatus.ACCEPTED.name().equals(st) || "USED".equals(st)) {
+            throw new NonceException("nonce 已 ACCEPTED，不能回收: " + submitter + "#" + nonce);
+        }
+        throw new NonceException("标记 nonce 为 RECYCLABLE 失败: " + submitter + "#" + nonce + " status=" + st);
+    }
+
+    /**
+     * 标记为 PENDING（隔离态），避免不确定情况下直接回收导致 nonce 复用事故。
+     */
+    @Override
+    public void markPending(String submitter, long nonce, String reason) {
+        requireNonEmpty(submitter, "submitter");
+        Instant now = Instant.now();
+        int updated = allocationMapper.markPendingIfReserved(submitter, nonce, reason != null ? reason : "", now);
+        if (updated > 0) {
+            return;
+        }
+        NonceAllocationEntity existing = allocationMapper.findBySubmitterAndNonce(submitter, nonce);
+        if (existing == null) {
+            throw new NonceException("未找到 allocation: " + submitter + "#" + nonce);
+        }
+        String st = existing.getStatus();
+        if (NonceAllocationStatus.PENDING.name().equals(st)) {
+            return;
+        }
+        if (NonceAllocationStatus.ACCEPTED.name().equals(st) || "USED".equals(st)) {
+            return; // 已不可复用，更强状态，允许幂等
+        }
+        throw new NonceException("标记 nonce 为 PENDING 失败: " + submitter + "#" + nonce + " status=" + st);
     }
 
     /**
@@ -269,7 +333,17 @@ public class PostgresNonceRepository implements NonceRepository {
      */
     private NonceAllocation convertToAllocation(NonceAllocationEntity entity) {
         try {
-            NonceAllocationStatus status = NonceAllocationStatus.valueOf(entity.getStatus());
+            NonceAllocationStatus status;
+            try {
+                status = NonceAllocationStatus.valueOf(entity.getStatus());
+            } catch (IllegalArgumentException legacy) {
+                // 兼容历史数据：USED 视为 ACCEPTED
+                if ("USED".equals(entity.getStatus())) {
+                    status = NonceAllocationStatus.ACCEPTED;
+                } else {
+                    throw legacy;
+                }
+            }
             return new NonceAllocation(
                     entity.getId(),
                     entity.getSubmitter(),

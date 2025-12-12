@@ -60,14 +60,16 @@ public class NonceExecutionTemplate {
             // NonceException直接抛出，不重复处理
             throw ex;
         } catch (Exception ex) {
-            // 其他异常：保守处理，默认将 nonce 视为“可能已消耗”，避免误回收导致 nonce 冲突风险
+            // 其他异常：默认认为“尚不确定是否已提交到链上”，避免产生 nonce gap 卡死。
+            // 处理策略：进入 PENDING 隔离态（避免误回收导致 nonce 重用事故），由后续对账任务最终判定。
             if (allocation != null) {
                 try {
-                    String reason = "handler exception (unknown if submitted): "
+                    String reason = "handler exception: "
                             + (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName());
-                    nonceService.markUsed(submitter, allocation.getNonce(), null, reason);
+                    nonceService.markPending(submitter, allocation.getNonce(), reason);
                 } catch (Exception recycleEx) {
-                    throw new NonceException("handler 执行异常且标记 nonce 失败", ex);
+                    // 不覆盖原异常，仅包装提示（避免吞掉原始堆栈）
+                    throw new NonceException("handler 执行异常且标记 PENDING 失败", ex);
                 }
             }
             throw new NonceException("handler 执行异常", ex);
