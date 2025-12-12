@@ -75,10 +75,20 @@ nonce:
   recycle-throttle: 5s
   # PENDING（隔离态）最大持续时间：超过后由对账任务“定案”（ACCEPTED 或 RECYCLABLE）
   pending-max-age: 5m
+  # PENDING（隔离态）硬上限：超过后不再自动回收/定案，只保留并告警，走人工处理
+  pending-hard-max-age: 2h
   # 是否启用定时对账任务（处理超时 RESERVED -> PENDING，以及 PENDING 定案）
   reconcile-enabled: true
   # 每次对账任务最大处理条数
   reconcile-batch-size: 200
   # 对账任务执行间隔（毫秒）
   reconcile-interval-ms: 5000
+  # 是否启用历史数据清理（建议生产用分区/归档；demo 提供可选批量删除）
+  cleanup-enabled: false
+  # 热窗口保留天数（建议 7~14 天）
+  hot-retention-days: 14
+  # 清理任务执行间隔（毫秒）
+  cleanup-interval-ms: 3600000
+  # 单次清理最大删除条数
+  cleanup-batch-size: 5000
   shared-account: false

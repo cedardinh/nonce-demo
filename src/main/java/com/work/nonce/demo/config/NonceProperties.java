@@ -52,6 +52,11 @@ public class NonceProperties {
     private Duration pendingMaxAge = Duration.ofMinutes(5);
 
     /**
+     * PENDING（隔离态）的硬上限。超过该时间不再自动定案/回收，进入“冻结/人工处理”路径（只告警与保留）。
+     */
+    private Duration pendingHardMaxAge = Duration.ofHours(2);
+
+    /**
      * 是否启用定时对账任务（处理超时 RESERVED -> PENDING，及 PENDING 定案）。
      */
     private boolean reconcileEnabled = true;
@@ -65,6 +70,26 @@ public class NonceProperties {
      * 对账任务执行间隔（fixedDelay，毫秒）。
      */
     private long reconcileIntervalMs = 5000L;
+
+    /**
+     * 是否启用历史数据清理（建议生产改为分区/归档；demo 提供可选的批量删除）。
+     */
+    private boolean cleanupEnabled = false;
+
+    /**
+     * 热窗口保留天数（建议 7~14 天）。
+     */
+    private int hotRetentionDays = 14;
+
+    /**
+     * 清理任务间隔（毫秒）。
+     */
+    private long cleanupIntervalMs = 3600_000L;
+
+    /**
+     * 单次清理最大删除条数（避免长事务）。
+     */
+    private int cleanupBatchSize = 5_000;
 
     // 账户是否可能被外部系统共用
     private boolean sharedAccount = false;
@@ -181,6 +206,14 @@ public class NonceProperties {
         this.pendingMaxAge = pendingMaxAge;
     }
 
+    public Duration getPendingHardMaxAge() {
+        return pendingHardMaxAge;
+    }
+
+    public void setPendingHardMaxAge(Duration pendingHardMaxAge) {
+        this.pendingHardMaxAge = pendingHardMaxAge;
+    }
+
     public boolean isReconcileEnabled() {
         return reconcileEnabled;
     }
@@ -203,6 +236,38 @@ public class NonceProperties {
 
     public void setReconcileIntervalMs(long reconcileIntervalMs) {
         this.reconcileIntervalMs = reconcileIntervalMs;
+    }
+
+    public boolean isCleanupEnabled() {
+        return cleanupEnabled;
+    }
+
+    public void setCleanupEnabled(boolean cleanupEnabled) {
+        this.cleanupEnabled = cleanupEnabled;
+    }
+
+    public int getHotRetentionDays() {
+        return hotRetentionDays;
+    }
+
+    public void setHotRetentionDays(int hotRetentionDays) {
+        this.hotRetentionDays = hotRetentionDays;
+    }
+
+    public long getCleanupIntervalMs() {
+        return cleanupIntervalMs;
+    }
+
+    public void setCleanupIntervalMs(long cleanupIntervalMs) {
+        this.cleanupIntervalMs = cleanupIntervalMs;
+    }
+
+    public int getCleanupBatchSize() {
+        return cleanupBatchSize;
+    }
+
+    public void setCleanupBatchSize(int cleanupBatchSize) {
+        this.cleanupBatchSize = cleanupBatchSize;
     }
 
     public boolean isSharedAccount() {

@@ -114,5 +114,12 @@ public interface NonceAllocationMapper extends BaseMapper<NonceAllocationEntity>
                      @Param("nonce") Long nonce,
                      @Param("reason") String reason,
                      @Param("now") Instant now);
+
+    /**
+     * 批量删除历史终态记录（ACCEPTED/RECYCLABLE/兼容历史 USED），用于 demo 清理。
+     * 生产建议优先使用分区/归档。
+     */
+    int deleteOldFinalizedAllocations(@Param("before") Instant before,
+                                     @Param("limit") int limit);
 }
 

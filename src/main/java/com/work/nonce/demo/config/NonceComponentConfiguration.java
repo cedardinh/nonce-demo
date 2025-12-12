@@ -3,6 +3,8 @@ package com.work.nonce.demo.config;
 import com.work.nonce.core.NonceComponent;
 import com.work.nonce.core.cache.NonceCacheManager;
 import com.work.nonce.core.chain.ChainNonceClient;
+import com.work.nonce.core.chain.ChainReceiptClient;
+import com.work.nonce.core.chain.NoopChainReceiptClient;
 import com.work.nonce.core.config.NonceConfig;
 import com.work.nonce.core.execution.NonceExecutionTemplate;
 import com.work.nonce.core.service.NonceService;
@@ -49,6 +51,7 @@ public class NonceComponentConfiguration {
                 properties.getChainQueryMaxRetries(),
                 properties.getRecycleThrottle(),
                 properties.getPendingMaxAge(),
+                properties.getPendingHardMaxAge(),
                 properties.isReconcileEnabled(),
                 properties.getReconcileBatchSize(),
                 properties.isSharedAccount()
@@ -68,6 +71,12 @@ public class NonceComponentConfiguration {
     @Bean
     public NonceCacheManager nonceCacheManager(NonceConfig nonceConfig) {
         return new NonceCacheManager(nonceConfig);
+    }
+
+    @Bean
+    public ChainReceiptClient chainReceiptClient() {
+        // demo 默认不启用 receipt 查询；生产环境应替换为真实实现（例如基于 web3j 的 eth_getTransactionReceipt）
+        return new NoopChainReceiptClient();
     }
 
     // NonceService 通过 @Service 自动扫描，不需要手动创建 Bean

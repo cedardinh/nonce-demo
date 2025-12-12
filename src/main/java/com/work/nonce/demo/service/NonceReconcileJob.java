@@ -2,6 +2,7 @@ package com.work.nonce.demo.service;
 
 import com.work.nonce.core.chain.ChainBlockTag;
 import com.work.nonce.core.chain.ChainNonceClient;
+import com.work.nonce.core.chain.ChainReceiptClient;
 import com.work.nonce.core.service.NonceService;
 import com.work.nonce.core.repository.entity.NonceAllocationEntity;
 import com.work.nonce.core.repository.mapper.NonceAllocationMapper;
@@ -9,10 +10,13 @@ import com.work.nonce.demo.config.NonceProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 轻量对账任务：
@@ -25,19 +29,24 @@ import java.util.List;
 @ConditionalOnProperty(prefix = "nonce", name = "reconcile-enabled", havingValue = "true", matchIfMissing = true)
 public class NonceReconcileJob {
 
+    private static final Logger log = LoggerFactory.getLogger(NonceReconcileJob.class);
+
     private final NonceProperties properties;
     private final NonceAllocationMapper allocationMapper;
     private final NonceService nonceService;
     private final ChainNonceClient chainNonceClient;
+    private final ChainReceiptClient receiptClient;
 
     public NonceReconcileJob(NonceProperties properties,
                              NonceAllocationMapper allocationMapper,
                              NonceService nonceService,
-                             ChainNonceClient chainNonceClient) {
+                             ChainNonceClient chainNonceClient,
+                             ChainReceiptClient receiptClient) {
         this.properties = properties;
         this.allocationMapper = allocationMapper;
         this.nonceService = nonceService;
         this.chainNonceClient = chainNonceClient;
+        this.receiptClient = receiptClient;
     }
 
     @Scheduled(fixedDelayString = "${nonce.reconcile-interval-ms:5000}")
@@ -71,6 +80,25 @@ public class NonceReconcileJob {
             String submitter = e.getSubmitter();
             long nonce = e.getNonce();
             try {
+                // 0) 强证据优先：txHash -> receipt
+                String txHash = e.getTxHash();
+                if (txHash != null && !txHash.trim().isEmpty()) {
+                    Optional<Boolean> hasReceipt = receiptClient.hasReceipt(txHash.trim());
+                    if (hasReceipt.isPresent() && Boolean.TRUE.equals(hasReceipt.get())) {
+                        nonceService.markUsed(submitter, nonce, txHash.trim(), "reconcile ACCEPTED by receipt");
+                        continue;
+                    }
+                }
+
+                // 0.5) 硬上限：超过 pendingHardMaxAge 后不做自动回收/定案，只告警并保留
+                Duration hard = properties.getPendingHardMaxAge() == null ? Duration.ofHours(2) : properties.getPendingHardMaxAge();
+                if (hard.toMillis() > 0 && e.getUpdatedAt() != null && e.getUpdatedAt().isBefore(now.minus(hard))) {
+                    allocationMapper.touchPending(submitter, nonce, "pendingHardMaxAge exceeded, manual required", now);
+                    log.warn("nonce pendingHardMaxAge exceeded: submitter={}, nonce={}, updatedAt={}, txHash={}",
+                            submitter, nonce, e.getUpdatedAt(), e.getTxHash());
+                    continue;
+                }
+
                 long latestNext = chainNonceClient.getNextNonce(submitter, ChainBlockTag.LATEST);
                 if (latestNext >= 0 && latestNext > nonce) {
                     nonceService.markUsed(submitter, nonce, e.getTxHash(), "reconcile ACCEPTED by latestNext=" + latestNext);
@@ -87,6 +115,7 @@ public class NonceReconcileJob {
                 // 链查询不可用时不做定案（避免误回收导致 nonce 复用事故）
                 if (latestNext < 0 && pendingNext < 0) {
                     allocationMapper.touchPending(submitter, nonce, "chain unavailable, keep pending", now);
+                    log.warn("chain unavailable during reconcile: submitter={}, nonce={}, txHash={}", submitter, nonce, e.getTxHash());
                     continue;
                 }
 

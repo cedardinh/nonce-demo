@@ -52,6 +52,11 @@ public class NonceConfig {
     private final Duration pendingMaxAge;
 
     /**
+     * PENDING（隔离态）的硬上限：超过后不再自动回收/定案，进入人工处理（只保留 + 告警）。
+     */
+    private final Duration pendingHardMaxAge;
+
+    /**
      * 是否启用定时对账（demo/宿主侧可能用到；core 仅存储配置）。
      */
     private final boolean reconcileEnabled;
@@ -78,6 +83,7 @@ public class NonceConfig {
                        int chainQueryMaxRetries,
                        Duration recycleThrottle,
                        Duration pendingMaxAge,
+                       Duration pendingHardMaxAge,
                        boolean reconcileEnabled,
                        int reconcileBatchSize,
                        boolean sharedAccount) {
@@ -97,6 +103,7 @@ public class NonceConfig {
         this.chainQueryMaxRetries = chainQueryMaxRetries;
         this.recycleThrottle = recycleThrottle;
         this.pendingMaxAge = pendingMaxAge;
+        this.pendingHardMaxAge = pendingHardMaxAge;
         this.reconcileEnabled = reconcileEnabled;
         this.reconcileBatchSize = reconcileBatchSize;
         this.sharedAccount = sharedAccount;
@@ -118,6 +125,7 @@ public class NonceConfig {
                 3,
                 Duration.ofSeconds(5),
                 Duration.ofMinutes(5),
+                Duration.ofHours(2),
                 true,
                 200,
                 false
@@ -216,6 +224,10 @@ public class NonceConfig {
 
     public Duration getPendingMaxAge() {
         return pendingMaxAge;
+    }
+
+    public Duration getPendingHardMaxAge() {
+        return pendingHardMaxAge;
     }
 
     public boolean isReconcileEnabled() {

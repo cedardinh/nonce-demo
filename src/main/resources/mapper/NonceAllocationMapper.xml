@@ -150,4 +150,16 @@
       AND status = 'PENDING'
   </update>
 
+  <delete id="deleteOldFinalizedAllocations">
+    DELETE FROM submitter_nonce_allocation
+    WHERE id IN (
+      SELECT id
+      FROM submitter_nonce_allocation
+      WHERE created_at &lt; #{before}
+        AND status IN ('ACCEPTED', 'RECYCLABLE', 'USED')
+      ORDER BY created_at ASC
+      LIMIT #{limit}
+    )
+  </delete>
+
 </mapper>
