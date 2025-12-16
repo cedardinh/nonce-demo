@@ -1,19 +1,19 @@
 # Nonce Demo 构建方案（基于 submitter + nonce）
 
-> 本方案只需传入 `submitter`，返回连续且可复用的 `nonce`，Redis 负责加速，Postgres 与区块链负责数据真相。
+> 本方案只需传入 `submitter`，返回连续且可复用的 `nonce`；数据真相由 Postgres 与区块链兜底。
 
 ---
 
 ## 1. 背景与目标
 
 - 多节点 Java 服务需要为 **每个 submitter** 生成从 0 开始、步长 1 的连续 nonce。
-- 同一节点内不同 submitter 可多线程并发使用该能力；同一个 submitter 则通过 Redis 锁 + Postgres 行级锁串行，确保无冲突。
+- 同一节点内不同 submitter 可多线程并发使用该能力；同一个 submitter 的并发通过“乐观锁（CAS）+ 唯一约束 + 重试退避”实现安全串行化。
 - 任意时刻，一个 nonce 只能绑定一笔交易；失败或未发出的 nonce 必须能复用。
-- Redis 可用但非唯一真相；若宕机需自动降级到纯 Postgres 模式；区块链是最终真相和灾备来源。
+- 不依赖 Redis；数据真相由 Postgres 与区块链兜底。
 - 设计原则：将 nonce 能力实现为一个 **独立组件 + 工具库**，对业务侧而言是黑盒，只暴露少量简单接口，内部负责所有并发控制、状态机和容灾。
 - 项目交付目标：
   1. 提供一个可复用的 `NonceComponent`（或 `NonceUtils`）API：输入 `submitter`，业务可方便地获取并使用安全的 nonce。
-  2. 业务方只通过组件接口使用 nonce，无需关心 Redis、Postgres、状态流转和灾备细节。
+  2. 业务方只通过组件接口使用 nonce，无需关心 Postgres 表结构、并发控制细节、状态流转与灾备细节。
 
 ---
 
@@ -22,14 +22,14 @@
 ```
 Client → Biz API → NonceExecutionTemplate
               ↓            ↑
-        Redis 锁 + Postgres 事务
+     Postgres（CAS + UNIQUE + 短事务 + 退避重试）
               ↓
    ChainClient（由业务实现的链路适配）
 ```
 
-- **Redis**：
-  - `nonce:lock:{submitter}`：按 submitter 维度的分布式锁，用来减少热 submitter 在 DB 上的行锁竞争；
-  - `nonce:state:{submitter}`（可选）：缓存最近一次成功分配后的 `last_chain_nonce`、`next_local_nonce` 等元数据，供监控/读接口使用（**分配时仍以 Postgres 为唯一真相，不从缓存直接决定分配结果**）。
+- **Postgres**：
+  - 同 submitter 串行通过 `submitter_nonce_state.next_local_nonce` 的 CAS 更新 + allocation 唯一约束实现；
+  - 冲突通过应用侧退避重试吸收，避免长时间阻塞。
 - **Postgres**：三张核心表保留所有状态；唯一真相。
 - **Blockchain**：对账、恢复、验证 nonce 连续性。
 
@@ -51,15 +51,14 @@ Client → Biz API → NonceExecutionTemplate
 ```mermaid
 graph TD
     A[客户端调用\n提交 submitter] --> B[NonceService 分配]
-    B --> C{Redis 加锁或降级}
-    C -->|成功或降级| D[Postgres 事务\n锁定 submitter 状态]
+    B --> D[Postgres 事务\n回收过期 + 抢洞/发新号]
     D --> X[清理该 submitter\n过期 RESERVED 为 RECYCLABLE]
     X --> E{是否存在可复用空洞}
     E -->|是| F[复用空洞 nonce\n写入 RESERVED]
     E -->|否| G[使用 next_local_nonce\n写入 RESERVED 并自增]
     F --> H[提交事务]
     G --> H
-    H --> I[释放 Redis 锁\n返回 submitter 与 nonce]
+    H --> I[返回 submitter 与 nonce]
     I --> J[NonceExecutionTemplate\n执行业务逻辑]
     J --> K{业务&链上调用结果}
     K -->|成功| L[同事务标记 USED\n记录 tx_hash/更新链状态]
@@ -90,7 +89,7 @@ graph TD
    - 成功：把当前 nonce 标记为 `USED`；
    - 失败：把当前 nonce 标记为 `RECYCLABLE`，释放以供下次复用。
 
-业务侧无需写任何 Redis/DB/状态机相关代码，只需实现 handler 即可。
+业务侧无需写任何 DB/状态机相关代码，只需实现 handler 即可。
 
 ### 5.2 组件内部的职责分层（业务不可见）
 
@@ -107,11 +106,10 @@ graph TD
     - 执行 handler，并为其提供上下文（包含 submitter、nonce 等信息）；
     - 在成功时将 allocation 状态标记为 `USED`；
     - 在失败/异常时将 allocation 状态标记为 `RECYCLABLE`；
-    - 在 finally 中释放 Redis 锁、清理 `lock_owner`。
+    - 根据执行结果更新 allocation 状态（USED/RECYCLABLE）。
 
 - **领域服务层 `NonceService`**
   - 专注于“如何为某个 submitter 分配一个正确的 nonce”：
-    - 使用 `RedisLockManager` 获取 per-submitters 分布式锁（失败自动降级）；
     - 在 Postgres 事务内：
       - 锁定 `submitter_nonce_state`；
       - 清理当前 submitter 的过期 `RESERVED` → `RECYCLABLE`；
@@ -121,7 +119,6 @@ graph TD
 
 - **基础设施层（组件内）**
   - `NonceRepository`：封装所有对 `submitter_nonce_state` 与 `submitter_nonce_allocation` 的 SQL 操作；
-  - `RedisLockManager`：统一管理 `nonce:lock:{submitter}` 的加锁/解锁和降级逻辑；
 - **业务侧扩展**
   - `ChainClient` 等外围依赖由业务自行实现，并通过 handler 闭包或依赖注入使用；组件仅提供 submitter/nonce 上下文，不感知外部实现细节。
 
@@ -136,9 +133,9 @@ graph TD
      - `NonceComponent` / `NonceUtils`：业务唯一依赖的门面类。
      - 若需要，暴露简单的 `NonceConfig` 供宿主应用配置。
    - 内部包含：
-     - `NonceService`：核心分配逻辑（Redis 锁 + Postgres），同 submitter 串行、不同 submitter 多线程并发。
+     - `NonceService`：核心分配逻辑（CAS + UNIQUE + 重试退避），同 submitter 安全串行、不同 submitter 多线程并发。
      - `NonceExecutionTemplate`：封装“获取 nonce → 执行业务 handler → 状态流转”的模板。
-     - `NonceRepository`、`RedisLockManager` 等基础设施实现。
+     - `NonceRepository` 等基础设施实现。
 
 2. **业务服务模块（多个）**
    - 各业务服务通过依赖 `nonce-core` 组件，使用 `NonceComponent.withNonce(...)` 完成自己的业务场景。
@@ -157,23 +154,22 @@ graph TD
    - 确认 Postgres/Flyway 可用。
    - 建好 `submitter_nonce_state`、`submitter_nonce_allocation`，配置唯一约束与索引。
 2. **实现 NonceService**
-   - Redis 操作封装：`tryLockSubmitter`, `releaseLock`，支持降级。
-   - Postgres 事务：`SELECT ... FOR UPDATE`、复用洞、新号逻辑、`UNIQUE(submitter, nonce)` 约束处理。
+   - Postgres 短事务：回收过期、复用洞（CAS 抢占）、发新号（state CAS）、占号（UNIQUE 约束）。
+   - 冲突处理：可重试异常 + 退避重试。
 3. **实现 NonceExecutionTemplate**
    - 提供 `execute(submitter, handler)`；在 handler 中注入 `nonce`, `txContext`。
    - 统一处理 SUCCESS / FAILURE 的状态流转：SUCCESS 标记为 `USED`，FAILURE 标记为 `RECYCLABLE` 并释放 nonce。
 4. **实现 API/业务控制器**
    - 通过模板包裹业务逻辑：本地事务写业务数据 + 同步调用链上接口。
    - 配置重试策略（如 Spring Retry）或失败告警。
-5. **监控与降级**
-   - Redis 不可用 → 自动跳过锁并记日志。
-   - 暴露指标：模板耗时、状态变化次数、redis 降级次数、链上失败率。
+5. **监控**
+   - 暴露指标：模板耗时、状态变化次数、退避重试次数、链上失败率。
 
 ---
 
 ## 8. 灾难处理与恢复策略
 
-即便采用同步闭环，也要对“数据库异常”“链上数据不一致”“Redis 故障”等情况具备动态感知与自动修复能力。
+即便采用同步闭环，也要对“数据库异常”“链上数据不一致”等情况具备动态感知与自动修复能力。
 
 ### 8.1 检测维度
 
@@ -183,8 +179,7 @@ graph TD
 - **链上状态漂移**
   - 每次成功调用链上接口后，记录链上返回的 `txHash` 和序列号。
   - 定期（或在模板内按需）调用 `chainClient.queryLatestNonce(submitter)`，对比本地 `last_chain_nonce`，若发现滞后则触发纠偏。
-- **Redis 降级**
-  - 任何 Redis 操作超时/失败时，自动标记为“降级模式”，并上报指标；模板改为纯 Postgres 流程。
+（本实现不依赖 Redis；如需接入 Redis，仅建议用于缓存/监控读接口，而不是作为正确性关键路径。）
 
 ### 8.2 自动化恢复闭环
 
@@ -212,14 +207,14 @@ graph TD
 ### 8.3 监控与告警
 
 - **核心指标**
-  - Redis 降级次数、降级持续时间。
+  - 退避重试次数、重试耗时分布。
   - `RESERVED` 状态滞留数量（判定是否有 handler 卡住）。
 - `RECYCLABLE` 的增长率（提示链上错误或业务异常）。
   - `last_chain_nonce` 与链上真实值的差距。
 - **告警策略**
   - `RESERVED` 超过阈值 → 自动触发清理或通知人工。
   - 链上对齐失败 → 自动进入全量对账模式，并告警。
-  - Redis 长时间不可用 → 告警但系统依旧可运行。
+  - 数据库/链路异常 → 告警并触发恢复/对账策略。
 
 通过以上检测 + 自动校正 + 指标监控，即可形成一个“动态判断灾难、自动恢复、必要时人工介入”的闭环，满足高级灾备要求。
 
@@ -231,13 +226,9 @@ graph TD
 | --- | --- | --- |
 | Java | 1.8 | 与 `pom.xml` 保持一致。 |
 | Postgres | 14 | 需开启事务隔离（默认 READ COMMITTED 即可）。 |
-| Redis | Cluster / Sentinel | 键：`nonce:lock:{submitter}`；TTL 10s，可按压力调优。 |
 | Blockchain 接口 | 已封装 SDK 或 HTTP RPC | 需提供同步发送、返回 txHash/确认状态的接口。 |
 
 配置项（`application.yml` 示例）：
-
-- `nonce.redis.enabled`
-- `nonce.lock.ttl`
 - `nonce.template.retry.max-attempts`
 - `nonce.chain.client.*`
 
@@ -245,7 +236,7 @@ graph TD
 
 ## 10. 测试计划
 
-1. **单元测试**：NonceService 并发复用洞、新号、Redis 降级。
+1. **单元测试**：NonceService 并发复用洞、新号、冲突重试。
 2. **模板测试**：模拟 SUCCESS / RETRYABLE / NON_RETRYABLE，校验状态转换。
 3. **链上调用测试**：mock chainClient 抛错/超时，验证 nonce 保持 RESERVED 或回收。
 4. **多线程集成测试**：多 submitter 并发、同 submitter 重试，确保 `UNIQUE(submitter, nonce)` 无冲突。

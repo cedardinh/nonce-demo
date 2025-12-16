@@ -1,0 +1,9 @@
+**/*.jar
+firefly-transaction-manager
+coverage.txt
+**/debug.test
+.DS_Store
+__debug*
+.vscode/*.log
+*.iml
+.idea/

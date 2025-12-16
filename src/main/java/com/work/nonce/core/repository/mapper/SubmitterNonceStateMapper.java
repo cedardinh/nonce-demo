@@ -3,7 +3,6 @@ package com.work.nonce.core.repository.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.work.nonce.core.repository.entity.SubmitterNonceStateEntity;
 import org.apache.ibatis.annotations.Param;
-import org.apache.ibatis.annotations.Select;
 
 import java.time.Instant;
 
@@ -13,19 +12,24 @@ import java.time.Instant;
 public interface SubmitterNonceStateMapper extends BaseMapper<SubmitterNonceStateEntity> {
 
     /**
-     * 使用 SELECT FOR UPDATE 锁定并加载状态，不存在则返回null
+     * 加载状态，不加锁（乐观并发控制由 CAS 更新承担）
      */
-    @Select("SELECT submitter, last_chain_nonce, next_local_nonce, updated_at, created_at " +
-            "FROM submitter_nonce_state WHERE submitter = #{submitter} FOR UPDATE")
-    SubmitterNonceStateEntity lockAndLoadBySubmitter(@Param("submitter") String submitter);
+    SubmitterNonceStateEntity selectBySubmitter(@Param("submitter") String submitter);
+
+    /**
+     * 乐观锁：CAS 更新 next_local_nonce
+     *
+     * @return 1 表示更新成功；0 表示 next_local_nonce 已被其他并发更新（需要重试）
+     */
+    int casUpdateNextLocalNonce(@Param("submitter") String submitter,
+                                @Param("expectedNextLocalNonce") Long expectedNextLocalNonce,
+                                @Param("newNextLocalNonce") Long newNextLocalNonce,
+                                @Param("now") Instant now);
 
     /**
      * 插入新状态（如果不存在）
      * 注意：PostgreSQL 的 ON CONFLICT 语法
      */
-    @org.apache.ibatis.annotations.Insert("INSERT INTO submitter_nonce_state(submitter, last_chain_nonce, next_local_nonce, updated_at, created_at) " +
-            "VALUES(#{submitter}, #{lastChainNonce}, #{nextLocalNonce}, #{updatedAt}, #{createdAt}) " +
-            "ON CONFLICT(submitter) DO NOTHING")
     int insertIfNotExists(@Param("submitter") String submitter,
                           @Param("lastChainNonce") Long lastChainNonce,
                           @Param("nextLocalNonce") Long nextLocalNonce,

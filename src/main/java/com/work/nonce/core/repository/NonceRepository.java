@@ -13,9 +13,18 @@ import java.util.Optional;
 public interface NonceRepository {
 
     /**
-     * 以 {@code SELECT ... FOR UPDATE} 的语义读取一行 submitter 状态，不存在则初始化。
+     * 加载 submitter 状态，不存在则初始化。
+     *
+     * 注意：当前实现使用“乐观锁 + 唯一约束 + 重试”，不依赖数据库行锁。
      */
-    SubmitterNonceState lockAndLoadState(String submitter);
+    SubmitterNonceState loadOrCreateState(String submitter);
+
+    /**
+     * 乐观锁：CAS 更新 nextLocalNonce（用于无行锁分配新 nonce）。
+     *
+     * @return true=更新成功；false=冲突（需重试）
+     */
+    boolean casUpdateNextLocalNonce(String submitter, long expectedNextLocalNonce, long newNextLocalNonce);
 
     /**
      * 更新 submitter 的 nextLocalNonce / lastChainNonce。
@@ -37,7 +46,7 @@ public interface NonceRepository {
     /**
      * 将 nonce 标记为 RESERVED（可能是新建，也可能是复用）。
      */
-    NonceAllocation reserveNonce(String submitter, long nonce, String lockOwner, Duration lockTtl);
+    NonceAllocation reserveNonce(String submitter, long nonce, String lockOwner, Duration reservationTtl);
 
     /**
      * 成功执行业务后，标记 allocation 为 USED，并附加 txHash 等信息。

@@ -1,6 +1,7 @@
 package com.work.nonce.core.repository.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
@@ -22,8 +23,12 @@ public class NonceAllocationEntity {
     private String status;
     
     private String lockOwner;
-    
-    private Instant lockedUntil;
+
+    /**
+     * reservation 的过期时间点（DB 列仍为 locked_until）
+     */
+    @TableField("locked_until")
+    private Instant reservedUntil;
     
     private String txHash;
     
@@ -76,12 +81,12 @@ public class NonceAllocationEntity {
         this.lockOwner = lockOwner;
     }
 
-    public Instant getLockedUntil() {
-        return lockedUntil;
+    public Instant getReservedUntil() {
+        return reservedUntil;
     }
 
-    public void setLockedUntil(Instant lockedUntil) {
-        this.lockedUntil = lockedUntil;
+    public void setReservedUntil(Instant reservedUntil) {
+        this.reservedUntil = reservedUntil;
     }
 
     public String getTxHash() {

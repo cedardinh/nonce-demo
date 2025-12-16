@@ -18,21 +18,6 @@ spring:
       idle-timeout: 600000
       max-lifetime: 1800000
   
-  # Redis 配置
-  data:
-    redis:
-      host: localhost
-      port: 6379
-      password: 
-      database: 0
-      timeout: 3000ms
-      lettuce:
-        pool:
-          max-active: 8
-          max-idle: 8
-          min-idle: 0
-          max-wait: -1ms
-  
   # MyBatis-Plus 配置
   mybatis-plus:
     configuration:
@@ -52,7 +37,7 @@ mybatis-plus:
 
 # Nonce 组件配置，可按需覆盖
 nonce:
-  redis-enabled: true
-  lock-ttl: 10s
   reserved-timeout: 30s
-  degrade-on-redis-failure: true
+  allocate-max-attempts: 15
+  backoff-base: 15ms
+  backoff-max: 200ms

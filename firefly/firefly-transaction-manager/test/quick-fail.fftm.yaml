@@ -1,0 +1,13 @@
+manager:
+  name: test
+operations:
+  fullScan:
+    startupMaxRetries: 1
+    minimumDelay: 1ms
+policyengine:
+  simple:
+    fixedGasPrice: 12345
+ffcore:
+  url: http://localhost:99999
+api:
+  port: 0 # allocate one

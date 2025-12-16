@@ -11,26 +11,22 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "nonce")
 public class NonceProperties {
 
-    private boolean redisEnabled = true;
-    private Duration lockTtl = Duration.ofSeconds(10);
     private Duration reservedTimeout = Duration.ofSeconds(30);
-    private boolean degradeOnRedisFailure = true;
 
-    public boolean isRedisEnabled() {
-        return redisEnabled;
-    }
+    /**
+     * allocate 的最大重试次数（用于乐观锁/唯一约束冲突时的退避重试）
+     */
+    private int allocateMaxAttempts = 15;
 
-    public void setRedisEnabled(boolean redisEnabled) {
-        this.redisEnabled = redisEnabled;
-    }
+    /**
+     * 退避重试的基础等待（会叠加指数退避与 jitter）
+     */
+    private Duration backoffBase = Duration.ofMillis(15);
 
-    public Duration getLockTtl() {
-        return lockTtl;
-    }
-
-    public void setLockTtl(Duration lockTtl) {
-        this.lockTtl = lockTtl;
-    }
+    /**
+     * 退避重试的最大等待上限
+     */
+    private Duration backoffMax = Duration.ofMillis(200);
 
     public Duration getReservedTimeout() {
         return reservedTimeout;
@@ -40,12 +36,28 @@ public class NonceProperties {
         this.reservedTimeout = reservedTimeout;
     }
 
-    public boolean isDegradeOnRedisFailure() {
-        return degradeOnRedisFailure;
+    public int getAllocateMaxAttempts() {
+        return allocateMaxAttempts;
     }
 
-    public void setDegradeOnRedisFailure(boolean degradeOnRedisFailure) {
-        this.degradeOnRedisFailure = degradeOnRedisFailure;
+    public void setAllocateMaxAttempts(int allocateMaxAttempts) {
+        this.allocateMaxAttempts = allocateMaxAttempts;
+    }
+
+    public Duration getBackoffBase() {
+        return backoffBase;
+    }
+
+    public void setBackoffBase(Duration backoffBase) {
+        this.backoffBase = backoffBase;
+    }
+
+    public Duration getBackoffMax() {
+        return backoffMax;
+    }
+
+    public void setBackoffMax(Duration backoffMax) {
+        this.backoffMax = backoffMax;
     }
 }
 

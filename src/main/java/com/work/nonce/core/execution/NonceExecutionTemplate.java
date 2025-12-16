@@ -45,7 +45,7 @@ public class NonceExecutionTemplate {
         try {
             // 分配nonce
             allocation = nonceService.allocate(submitter);
-        NonceExecutionContext ctx = new NonceExecutionContext(submitter, allocation.getNonce());
+            NonceExecutionContext ctx = new NonceExecutionContext(submitter, allocation.getNonce());
             
             // 执行业务handler
             NonceExecutionResult result = handler.handle(ctx);

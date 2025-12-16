@@ -8,39 +8,44 @@ import java.time.Duration;
  */
 public class NonceConfig {
 
-    private final boolean redisEnabled;
-    private final Duration lockTtl;
     private final Duration reservedTimeout;
-    private final boolean degradeOnRedisFailure;
+    private final int allocateMaxAttempts;
+    private final Duration backoffBase;
+    private final Duration backoffMax;
 
-    public NonceConfig(boolean redisEnabled,
-                       Duration lockTtl,
-                       Duration reservedTimeout,
-                       boolean degradeOnRedisFailure) {
-        this.redisEnabled = redisEnabled;
-        this.lockTtl = lockTtl;
+    public NonceConfig(Duration reservedTimeout,
+                       int allocateMaxAttempts,
+                       Duration backoffBase,
+                       Duration backoffMax) {
         this.reservedTimeout = reservedTimeout;
-        this.degradeOnRedisFailure = degradeOnRedisFailure;
+        this.allocateMaxAttempts = allocateMaxAttempts;
+        this.backoffBase = backoffBase;
+        this.backoffMax = backoffMax;
     }
 
     public static NonceConfig defaultConfig() {
-        return new NonceConfig(true, Duration.ofSeconds(10), Duration.ofSeconds(30), true);
-    }
-
-    public boolean isRedisEnabled() {
-        return redisEnabled;
-    }
-
-    public Duration getLockTtl() {
-        return lockTtl;
+        return new NonceConfig(
+                Duration.ofSeconds(30),
+                15,
+                Duration.ofMillis(15),
+                Duration.ofMillis(200)
+        );
     }
 
     public Duration getReservedTimeout() {
         return reservedTimeout;
     }
 
-    public boolean isDegradeOnRedisFailure() {
-        return degradeOnRedisFailure;
+    public int getAllocateMaxAttempts() {
+        return allocateMaxAttempts;
+    }
+
+    public Duration getBackoffBase() {
+        return backoffBase;
+    }
+
+    public Duration getBackoffMax() {
+        return backoffMax;
     }
 }
 

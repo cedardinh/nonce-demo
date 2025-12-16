@@ -12,13 +12,13 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * 将核心组件装配为 Spring Bean，方便通过依赖注入复用。
- * 生产环境使用 PostgreSQL + Redis 实现。
+ * 生产环境使用 PostgreSQL（乐观锁/CAS + 唯一约束 + 重试退避 + 短事务 + 条件更新）。
  */
 @Configuration
 @EnableConfigurationProperties(NonceProperties.class)
 public class NonceComponentConfiguration {
 
-    // PostgresNonceRepository 和 RedisDistributedLockManager 通过 @Repository 和 @Component 自动扫描
+    // PostgresNonceRepository 通过 @Repository 自动扫描
     // 不需要手动创建 Bean，Spring 会自动注入
 
     /**
@@ -33,10 +33,10 @@ public class NonceComponentConfiguration {
     @Bean
     public NonceConfig nonceConfig(NonceProperties properties) {
         return new NonceConfig(
-                properties.isRedisEnabled(),
-                properties.getLockTtl(),
                 properties.getReservedTimeout(),
-                properties.isDegradeOnRedisFailure()
+                properties.getAllocateMaxAttempts(),
+                properties.getBackoffBase(),
+                properties.getBackoffMax()
         );
     }
 

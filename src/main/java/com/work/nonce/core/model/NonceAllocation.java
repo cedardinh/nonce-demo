@@ -8,7 +8,7 @@ import java.util.Objects;
  * 
  * 注意：
  * 1. id、submitter、nonce是不可变字段，创建后不能修改
- * 2. status、lockOwner、lockedUntil、txHash、updatedAt是可变字段，会在状态转换时更新
+ * 2. status、lockOwner、reservedUntil、txHash、updatedAt是可变字段，会在状态转换时更新
  * 3. 此对象主要在事务中使用，线程安全性由事务保证
  */
 public class NonceAllocation {
@@ -18,7 +18,10 @@ public class NonceAllocation {
     private final long nonce;
     private NonceAllocationStatus status;
     private String lockOwner;
-    private Instant lockedUntil;
+    /**
+     * reservation 的过期时间点（语义上比 lockedUntil 更准确）
+     */
+    private Instant reservedUntil;
     private String txHash;
     private Instant updatedAt;
 
@@ -27,7 +30,7 @@ public class NonceAllocation {
                            long nonce,
                            NonceAllocationStatus status,
                            String lockOwner,
-                           Instant lockedUntil,
+                           Instant reservedUntil,
                            String txHash,
                            Instant updatedAt) {
         if (id <= 0) {
@@ -51,7 +54,7 @@ public class NonceAllocation {
         this.nonce = nonce;
         this.status = status;
         this.lockOwner = lockOwner;
-        this.lockedUntil = lockedUntil;
+        this.reservedUntil = reservedUntil;
         this.txHash = txHash;
         this.updatedAt = updatedAt;
     }
@@ -87,12 +90,12 @@ public class NonceAllocation {
         this.lockOwner = lockOwner;
     }
 
-    public Instant getLockedUntil() {
-        return lockedUntil;
+    public Instant getReservedUntil() {
+        return reservedUntil;
     }
 
-    public void setLockedUntil(Instant lockedUntil) {
-        this.lockedUntil = lockedUntil;
+    public void setReservedUntil(Instant reservedUntil) {
+        this.reservedUntil = reservedUntil;
     }
 
     public String getTxHash() {
@@ -135,7 +138,7 @@ public class NonceAllocation {
                 ", nonce=" + nonce +
                 ", status=" + status +
                 ", lockOwner='" + lockOwner + '\'' +
-                ", lockedUntil=" + lockedUntil +
+                ", reservedUntil=" + reservedUntil +
                 ", txHash='" + txHash + '\'' +
                 ", updatedAt=" + updatedAt +
                 '}';
