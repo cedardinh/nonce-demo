@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.work.nonce.txmgr.repository.mapper.TxCompletionMapper">
+
+    <insert id="insertCompletion">
+        INSERT INTO tx_completions(tx_id, time, status)
+        VALUES (#{txId}, #{time}, #{status})
+    </insert>
+
+    <select id="listAfterSeq" resultType="com.work.nonce.txmgr.repository.entity.TxCompletionEntity">
+        SELECT seq, tx_id AS tx_id, time, status
+        FROM tx_completions
+        <where>
+            <if test="afterSeq != null">
+                seq &gt; #{afterSeq}
+            </if>
+        </where>
+        ORDER BY seq ASC
+        LIMIT #{limit}
+    </select>
+
+</mapper>
+
+

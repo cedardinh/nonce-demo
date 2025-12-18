@@ -11,7 +11,10 @@ import org.springframework.context.annotation.Configuration;
  * MyBatis-Plus 配置类
  */
 @Configuration
-@MapperScan("com.work.nonce.core.repository.mapper")
+@MapperScan({
+        "com.work.nonce.core.repository.mapper",
+        "com.work.nonce.txmgr.repository.mapper"
+})
 public class MyBatisPlusConfig {
 
     /**

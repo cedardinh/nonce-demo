@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.work.nonce.txmgr.repository.mapper.SubmitterLeaseMapper">
+
+    <select id="selectDbNow" resultType="java.time.Instant">
+        SELECT now()
+    </select>
+
+    <select id="selectForUpdate" resultType="com.work.nonce.txmgr.repository.entity.SubmitterLeaseEntity">
+        SELECT submitter,
+               owner_node AS owner_node,
+               fencing_token AS fencing_token,
+               expires_at AS expires_at,
+               updated_at AS updated_at
+        FROM submitter_lease
+        WHERE submitter = #{submitter}
+        FOR UPDATE
+    </select>
+
+    <insert id="insertNew">
+        INSERT INTO submitter_lease(submitter, owner_node, fencing_token, expires_at, updated_at)
+        VALUES (#{submitter}, #{ownerNode}, #{fencingToken}, #{expiresAt}, #{updatedAt})
+    </insert>
+
+    <update id="renew">
+        UPDATE submitter_lease
+        SET expires_at = #{expiresAt},
+            updated_at = #{updatedAt}
+        WHERE submitter = #{submitter}
+          AND owner_node = #{ownerNode}
+          AND fencing_token = #{fencingToken}
+    </update>
+
+    <update id="takeover">
+        UPDATE submitter_lease
+        SET owner_node = #{newOwnerNode},
+            fencing_token = #{newFencingToken},
+            expires_at = #{expiresAt},
+            updated_at = #{updatedAt}
+        WHERE submitter = #{submitter}
+    </update>
+
+</mapper>
+
+

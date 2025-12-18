@@ -1,7 +1,7 @@
 -- postgres.sql
 -- Schema for nonce-management demo (PostgreSQL)
 -- 约定：
--- - submitter: 业务侧的“发号维度”（可理解为 signer / submitter / 账户等），同一 submitter 的 nonce 序列独立
+-- - submitter: 业务侧的“发号维度”（可理解为 submitter / submitter / 账户等），同一 submitter 的 nonce 序列独立
 -- - 本实现采用：乐观锁（CAS）+ UNIQUE(submitter, nonce) + 重试退避 + 短事务 + 条件更新（CAS）
 
 BEGIN;

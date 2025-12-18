@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.work.nonce.txmgr.repository.mapper.ManagedTxMapper">
+
+    <select id="selectByTxId" resultType="com.work.nonce.txmgr.repository.entity.ManagedTxEntity">
+        SELECT tx_id AS tx_id,
+               submitter,
+               request_id AS request_id,
+               nonce,
+               payload::text AS payload,
+               tx_hash AS tx_hash,
+               state,
+               sub_state AS sub_state,
+               last_submit_at AS last_submit_at,
+               last_receipt_check_at AS last_receipt_check_at,
+               next_resubmit_at AS next_resubmit_at,
+               submit_attempts AS submit_attempts,
+               last_error AS last_error,
+               receipt::text AS receipt,
+               confirmed_at AS confirmed_at,
+               fencing_token AS fencing_token,
+               created_at AS created_at,
+               updated_at AS updated_at
+        FROM managed_tx
+        WHERE tx_id = #{txId}
+    </select>
+
+    <select id="selectBySubmitterAndRequestId" resultType="com.work.nonce.txmgr.repository.entity.ManagedTxEntity">
+        SELECT tx_id AS tx_id,
+               submitter,
+               request_id AS request_id,
+               nonce,
+               payload::text AS payload,
+               tx_hash AS tx_hash,
+               state,
+               sub_state AS sub_state,
+               last_submit_at AS last_submit_at,
+               last_receipt_check_at AS last_receipt_check_at,
+               next_resubmit_at AS next_resubmit_at,
+               submit_attempts AS submit_attempts,
+               last_error AS last_error,
+               receipt::text AS receipt,
+               confirmed_at AS confirmed_at,
+               fencing_token AS fencing_token,
+               created_at AS created_at,
+               updated_at AS updated_at
+        FROM managed_tx
+        WHERE submitter = #{submitter}
+          AND request_id = #{requestId}
+        LIMIT 1
+    </select>
+
+    <insert id="insertManagedTx">
+        INSERT INTO managed_tx(
+            tx_id, submitter, request_id, nonce, payload, state,
+            submit_attempts, fencing_token, created_at, updated_at
+        )
+        VALUES (
+            #{txId}, #{submitter}, #{requestId}, #{nonce}, CAST(#{payload} AS jsonb), #{state},
+            0, #{token}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateTxHashFenced">
+        UPDATE managed_tx
+        SET tx_hash = #{txHash},
+            state = #{state},
+            last_submit_at = #{updatedAt},
+            next_resubmit_at = #{nextResubmitAt},
+            submit_attempts = COALESCE(submit_attempts, 0) + 1,
+            sub_state = NULL,
+            last_error = NULL,
+            fencing_token = #{token},
+            updated_at = #{updatedAt}
+        WHERE tx_id = #{txId}
+          AND submitter = #{submitter}
+          AND state IN ('ALLOCATED', 'TRACKING')
+          AND receipt IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM submitter_lease sl
+            WHERE sl.submitter = #{submitter}
+              AND sl.owner_node = #{nodeId}
+              AND sl.expires_at > now()
+              AND sl.fencing_token = #{token}
+          )
+    </update>
+
+    <update id="updateNextResubmitAtFenced">
+        UPDATE managed_tx
+        SET next_resubmit_at = #{nextResubmitAt},
+            last_error = #{lastError},
+            fencing_token = #{token},
+            updated_at = #{updatedAt}
+        WHERE tx_id = #{txId}
+          AND submitter = #{submitter}
+          AND state = 'TRACKING'
+          AND receipt IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM submitter_lease sl
+            WHERE sl.submitter = #{submitter}
+              AND sl.owner_node = #{nodeId}
+              AND sl.expires_at > now()
+              AND sl.fencing_token = #{token}
+          )
+    </update>
+
+    <update id="markStuckFenced">
+        UPDATE managed_tx
+        SET state = 'STUCK',
+            sub_state = #{subState},
+            last_error = #{lastError},
+            fencing_token = #{token},
+            updated_at = #{updatedAt}
+        WHERE tx_id = #{txId}
+          AND submitter = #{submitter}
+          AND state = 'TRACKING'
+          AND receipt IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM submitter_lease sl
+            WHERE sl.submitter = #{submitter}
+              AND sl.owner_node = #{nodeId}
+              AND sl.expires_at > now()
+              AND sl.fencing_token = #{token}
+          )
+    </update>
+
+    <update id="updateReceiptFenced">
+        UPDATE managed_tx
+        SET receipt = CAST(#{receipt} AS jsonb),
+            fencing_token = #{token},
+            updated_at = #{updatedAt}
+        WHERE tx_id = #{txId}
+          AND submitter = #{submitter}
+          AND state = 'TRACKING'
+          AND receipt IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM submitter_lease sl
+            WHERE sl.submitter = #{submitter}
+              AND sl.owner_node = #{nodeId}
+              AND sl.expires_at > now()
+              AND sl.fencing_token = #{token}
+          )
+    </update>
+
+    <update id="updateFinalStateFenced">
+        UPDATE managed_tx
+        SET state = #{state},
+            confirmed_at = #{confirmedAt},
+            fencing_token = #{token},
+            updated_at = #{updatedAt}
+        WHERE tx_id = #{txId}
+          AND submitter = #{submitter}
+          AND state = 'TRACKING'
+          AND EXISTS (
+            SELECT 1
+            FROM submitter_lease sl
+            WHERE sl.submitter = #{submitter}
+              AND sl.owner_node = #{nodeId}
+              AND sl.expires_at > now()
+              AND sl.fencing_token = #{token}
+          )
+    </update>
+
+    <select id="listTrackingWithoutReceipt" resultType="com.work.nonce.txmgr.repository.entity.ManagedTxEntity">
+        SELECT tx_id AS tx_id,
+               submitter,
+               request_id AS request_id,
+               nonce,
+               payload::text AS payload,
+               tx_hash AS tx_hash,
+               state,
+               sub_state AS sub_state,
+               last_submit_at AS last_submit_at,
+               last_receipt_check_at AS last_receipt_check_at,
+               next_resubmit_at AS next_resubmit_at,
+               submit_attempts AS submit_attempts,
+               last_error AS last_error,
+               receipt::text AS receipt,
+               confirmed_at AS confirmed_at,
+               fencing_token AS fencing_token,
+               created_at AS created_at,
+               updated_at AS updated_at
+        FROM managed_tx
+        WHERE state = 'TRACKING'
+          AND tx_hash IS NOT NULL
+          AND receipt IS NULL
+        ORDER BY COALESCE(last_receipt_check_at, updated_at) ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listDueResubmits" resultType="com.work.nonce.txmgr.repository.entity.ManagedTxEntity">
+        SELECT tx_id AS tx_id,
+               submitter,
+               request_id AS request_id,
+               nonce,
+               payload::text AS payload,
+               tx_hash AS tx_hash,
+               state,
+               sub_state AS sub_state,
+               last_submit_at AS last_submit_at,
+               last_receipt_check_at AS last_receipt_check_at,
+               next_resubmit_at AS next_resubmit_at,
+               submit_attempts AS submit_attempts,
+               last_error AS last_error,
+               receipt::text AS receipt,
+               confirmed_at AS confirmed_at,
+               fencing_token AS fencing_token,
+               created_at AS created_at,
+               updated_at AS updated_at
+        FROM managed_tx
+        WHERE state = 'TRACKING'
+          AND receipt IS NULL
+          AND tx_hash IS NOT NULL
+          AND next_resubmit_at IS NOT NULL
+          AND next_resubmit_at <= now()
+        ORDER BY next_resubmit_at ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listTrackingWithReceipt" resultType="com.work.nonce.txmgr.repository.entity.ManagedTxEntity">
+        SELECT tx_id AS tx_id,
+               submitter,
+               request_id AS request_id,
+               nonce,
+               payload::text AS payload,
+               tx_hash AS tx_hash,
+               state,
+               sub_state AS sub_state,
+               last_submit_at AS last_submit_at,
+               last_receipt_check_at AS last_receipt_check_at,
+               next_resubmit_at AS next_resubmit_at,
+               submit_attempts AS submit_attempts,
+               last_error AS last_error,
+               receipt::text AS receipt,
+               confirmed_at AS confirmed_at,
+               fencing_token AS fencing_token,
+               created_at AS created_at,
+               updated_at AS updated_at
+        FROM managed_tx
+        WHERE state = 'TRACKING'
+          AND receipt IS NOT NULL
+          AND confirmed_at IS NULL
+        ORDER BY updated_at ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="countTrackingPending" resultType="java.lang.Long">
+        SELECT COUNT(1)
+        FROM managed_tx
+        WHERE submitter = #{submitter}
+          AND state = 'TRACKING'
+          AND tx_hash IS NOT NULL
+          AND receipt IS NULL
+    </select>
+
+    <select id="selectOldestTrackingPending" resultType="com.work.nonce.txmgr.repository.entity.ManagedTxEntity">
+        SELECT tx_id AS tx_id,
+               submitter,
+               request_id AS request_id,
+               nonce,
+               payload::text AS payload,
+               tx_hash AS tx_hash,
+               state,
+               sub_state AS sub_state,
+               last_submit_at AS last_submit_at,
+               last_receipt_check_at AS last_receipt_check_at,
+               next_resubmit_at AS next_resubmit_at,
+               submit_attempts AS submit_attempts,
+               last_error AS last_error,
+               receipt::text AS receipt,
+               confirmed_at AS confirmed_at,
+               fencing_token AS fencing_token,
+               created_at AS created_at,
+               updated_at AS updated_at
+        FROM managed_tx
+        WHERE submitter = #{submitter}
+          AND state = 'TRACKING'
+          AND tx_hash IS NOT NULL
+          AND receipt IS NULL
+        ORDER BY COALESCE(last_submit_at, created_at) ASC
+        LIMIT 1
+    </select>
+
+    <select id="listSubmittersWithTrackingPending" resultType="java.lang.String">
+        SELECT DISTINCT submitter
+        FROM managed_tx
+        WHERE state = 'TRACKING'
+          AND tx_hash IS NOT NULL
+          AND receipt IS NULL
+        ORDER BY submitter ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="updateLastReceiptCheckAtFenced">
+        UPDATE managed_tx
+        SET last_receipt_check_at = #{lastReceiptCheckAt},
+            fencing_token = #{token},
+            updated_at = #{updatedAt}
+        WHERE tx_id = #{txId}
+          AND submitter = #{submitter}
+          AND state = 'TRACKING'
+          AND receipt IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM submitter_lease sl
+            WHERE sl.submitter = #{submitter}
+              AND sl.owner_node = #{nodeId}
+              AND sl.expires_at > now()
+              AND sl.fencing_token = #{token}
+          )
+    </update>
+
+</mapper>
+
+

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.work.nonce.txmgr.repository.mapper.SubmitterNonceCursorMapper">
+
+    <select id="selectBySubmitter" resultType="com.work.nonce.txmgr.repository.entity.SubmitterNonceCursorEntity">
+        SELECT submitter,
+               next_nonce AS next_nonce,
+               fencing_token AS fencing_token,
+               updated_at AS updated_at
+        FROM submitter_nonce_cursor
+        WHERE submitter = #{submitter}
+    </select>
+
+    <insert id="insertIfNotExists">
+        INSERT INTO submitter_nonce_cursor(submitter, next_nonce, fencing_token, updated_at)
+        VALUES (#{submitter}, #{nextNonce}, #{fencingToken}, #{updatedAt})
+        ON CONFLICT(submitter) DO NOTHING
+    </insert>
+
+    <update id="updateNextNonceFenced">
+        UPDATE submitter_nonce_cursor
+        SET next_nonce = #{nextNonce},
+            fencing_token = #{token},
+            updated_at = #{updatedAt}
+        WHERE submitter = #{submitter}
+          AND EXISTS (
+            SELECT 1
+            FROM submitter_lease sl
+            WHERE sl.submitter = #{submitter}
+              AND sl.owner_node = #{nodeId}
+              AND sl.expires_at > now()
+              AND sl.fencing_token = #{token}
+          )
+    </update>
+
+</mapper>
+
+

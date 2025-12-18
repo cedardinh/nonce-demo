@@ -41,3 +41,21 @@ nonce:
   allocate-max-attempts: 15
   backoff-base: 15ms
   backoff-max: 200ms
+
+# Tx Manager（111最终方案.md）相关配置（里程碑1：最小可运行）
+txmgr:
+  lease-duration: 10s
+  renew-interval: 3s
+  clock-skew-allowance: 1s
+  writer-workers: 256
+  writer-batch-size: 50
+  nonce-state-timeout: 1h
+  stale-receipt-timeout: 60s
+  receipt-scan-interval: 5s
+  resubmit-scan-interval: 5s
+  resubmit-interval: 30s
+  resubmit-max-attempts: 5
+  finality-confirmations: 1
+  finality-scan-interval: 5s
+  pending-backlog-threshold: 50
+  pending-oldest-age-threshold: 5m
