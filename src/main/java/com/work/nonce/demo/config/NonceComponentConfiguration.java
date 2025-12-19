@@ -18,8 +18,8 @@ import org.springframework.context.annotation.Configuration;
 @EnableConfigurationProperties(NonceProperties.class)
 public class NonceComponentConfiguration {
 
-    // PostgresNonceRepository 和 RedisDistributedLockManager 通过 @Repository 和 @Component 自动扫描
-    // 不需要手动创建 Bean，Spring 会自动注入
+    // PostgresNonceRepository 通过 @Repository 自动扫描
+    // RedisDistributedLockManager 仅在 nonce.redis-enabled=true 时通过条件装配创建（可选）
 
     /**
      * ChainClient 实现（业务方需要替换为自己的实现）

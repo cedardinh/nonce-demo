@@ -52,7 +52,7 @@ mybatis-plus:
 
 # Nonce 组件配置，可按需覆盖
 nonce:
-  redis-enabled: true
+  redis-enabled: false
   lock-ttl: 10s
   reserved-timeout: 30s
   degrade-on-redis-failure: true

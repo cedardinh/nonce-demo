@@ -6,6 +6,7 @@ import com.work.nonce.core.model.NonceAllocation;
 import com.work.nonce.core.model.SubmitterNonceState;
 import com.work.nonce.core.repository.NonceRepository;
 import com.work.nonce.core.support.TransactionLockSynchronizer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,14 +32,14 @@ public class NonceService {
     private static final int TRANSACTION_TIMEOUT_SECONDS = 5;
 
     private final NonceRepository nonceRepository;
-    private final RedisLockManager redisLockManager;
+    private final ObjectProvider<RedisLockManager> redisLockManagerProvider;
     private final NonceConfig config;
 
     public NonceService(NonceRepository nonceRepository,
-                        RedisLockManager redisLockManager,
+                        ObjectProvider<RedisLockManager> redisLockManagerProvider,
                         NonceConfig config) {
         this.nonceRepository = nonceRepository;
-        this.redisLockManager = redisLockManager;
+        this.redisLockManagerProvider = redisLockManagerProvider;
         this.config = config;
     }
 
@@ -61,6 +62,14 @@ public class NonceService {
 
         // 如果启用Redis，使用事务同步机制管理锁
         if (config.isRedisEnabled()) {
+            RedisLockManager redisLockManager = redisLockManagerProvider.getIfAvailable();
+            if (redisLockManager == null) {
+                // 未提供 RedisLockManager Bean：按配置决定降级或失败
+                if (config.isDegradeOnRedisFailure()) {
+                    return doAllocate(submitter, lockOwner);
+                }
+                throw new IllegalStateException("nonce.redis-enabled=true 但未找到 RedisLockManager 实现（请启用 RedisDistributedLockManager 或提供自定义实现）");
+            }
             return TransactionLockSynchronizer.executeWithLock(
                     redisLockManager,
                     submitter,

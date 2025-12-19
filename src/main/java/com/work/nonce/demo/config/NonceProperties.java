@@ -11,7 +11,8 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "nonce")
 public class NonceProperties {
 
-    private boolean redisEnabled = true;
+    // 默认不启用 Redis 分布式锁：仅依赖数据库事务/行锁即可保证正确性
+    private boolean redisEnabled = false;
     private Duration lockTtl = Duration.ofSeconds(10);
     private Duration reservedTimeout = Duration.ofSeconds(30);
     private boolean degradeOnRedisFailure = true;

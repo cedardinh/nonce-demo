@@ -3,6 +3,7 @@ package com.work.nonce.core.lock.impl;
 import com.work.nonce.core.exception.NonceException;
 import com.work.nonce.core.lock.RedisLockManager;
 import com.work.nonce.core.support.ValidationUtils;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,8 @@ import static com.work.nonce.core.support.ValidationUtils.requirePositive;
  * 4. 异常处理完善，确保不影响主流程
  */
 @Component
+@ConditionalOnProperty(prefix = "nonce", name = "redis-enabled", havingValue = "true")
+@SuppressWarnings("null")
 public class RedisDistributedLockManager implements RedisLockManager {
 
     private static final String LOCK_KEY_PREFIX = "nonce:lock:";

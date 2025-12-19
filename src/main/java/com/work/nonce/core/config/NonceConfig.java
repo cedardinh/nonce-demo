@@ -24,7 +24,8 @@ public class NonceConfig {
     }
 
     public static NonceConfig defaultConfig() {
-        return new NonceConfig(true, Duration.ofSeconds(10), Duration.ofSeconds(30), true);
+        // 默认不启用 Redis 分布式锁：仅依赖数据库事务/行锁保证正确性，降低本地与早期环境的依赖复杂度
+        return new NonceConfig(false, Duration.ofSeconds(10), Duration.ofSeconds(30), true);
     }
 
     public boolean isRedisEnabled() {
