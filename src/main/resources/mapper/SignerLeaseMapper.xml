@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.work.nonce.core.repository.mapper.SignerLeaseMapper">
+
+    <!--
+      acquireOrRenewLease:
+      - insert if absent (token=1)
+      - renew if unexpired and same owner (token unchanged, expires_at extended)
+      - steal if expired (token=token+1, owner replaced, expires_at extended)
+      - if held by other owner and unexpired -> no row returned (NULL in MyBatis)
+    -->
+    <select id="acquireOrRenewLease" resultType="java.lang.Long">
+        INSERT INTO signer_lease (signer, owner_id, fencing_token, expires_at)
+        VALUES (#{signer}, #{ownerId}, 1, #{expiresAt})
+        ON CONFLICT (signer) DO UPDATE
+        SET owner_id = EXCLUDED.owner_id,
+            fencing_token = CASE
+                WHEN signer_lease.expires_at &lt;= #{now} THEN signer_lease.fencing_token + 1
+                ELSE signer_lease.fencing_token
+            END,
+            expires_at = EXCLUDED.expires_at
+        WHERE signer_lease.expires_at &lt;= #{now}
+           OR signer_lease.owner_id = EXCLUDED.owner_id
+        RETURNING fencing_token
+    </select>
+
+</mapper>
+
+

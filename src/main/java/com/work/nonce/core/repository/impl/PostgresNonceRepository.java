@@ -1,6 +1,7 @@
 package com.work.nonce.core.repository.impl;
 
 import com.work.nonce.core.exception.NonceException;
+import com.work.nonce.core.exception.LeaseNotOwnedException;
 import com.work.nonce.core.model.NonceAllocation;
 import com.work.nonce.core.model.NonceAllocationStatus;
 import com.work.nonce.core.model.SignerNonceState;
@@ -8,6 +9,7 @@ import com.work.nonce.core.repository.NonceRepository;
 import com.work.nonce.core.repository.entity.NonceAllocationEntity;
 import com.work.nonce.core.repository.entity.SignerNonceStateEntity;
 import com.work.nonce.core.repository.mapper.NonceAllocationMapper;
+import com.work.nonce.core.repository.mapper.SignerLeaseMapper;
 import com.work.nonce.core.repository.mapper.SignerNonceStateMapper;
 import org.springframework.stereotype.Repository;
 
@@ -37,11 +39,25 @@ public class PostgresNonceRepository implements NonceRepository {
     
     private final SignerNonceStateMapper stateMapper;
     private final NonceAllocationMapper allocationMapper;
+    private final SignerLeaseMapper leaseMapper;
 
     public PostgresNonceRepository(SignerNonceStateMapper stateMapper,
-                                   NonceAllocationMapper allocationMapper) {
+                                   NonceAllocationMapper allocationMapper,
+                                   SignerLeaseMapper leaseMapper) {
         this.stateMapper = stateMapper;
         this.allocationMapper = allocationMapper;
+        this.leaseMapper = leaseMapper;
+    }
+
+    @Override
+    public Long acquireOrRenewLease(String signer, String ownerId, Duration leaseTtl) {
+        requireNonEmpty(signer, "signer");
+        requireNonEmpty(ownerId, "ownerId");
+        requirePositive(leaseTtl, "leaseTtl");
+
+        Instant now = Instant.now();
+        Instant expiresAt = now.plus(leaseTtl);
+        return leaseMapper.acquireOrRenewLease(signer, ownerId, now, expiresAt);
     }
 
     @Override
@@ -57,6 +73,33 @@ public class PostgresNonceRepository implements NonceRepository {
         }
         
         return convertToState(entity);
+    }
+
+    @Override
+    public void ensureStateExists(String signer) {
+        requireNonEmpty(signer, "signer");
+        Instant now = Instant.now();
+        stateMapper.insertIfNotExists(signer, INITIAL_NEXT_LOCAL_NONCE, now, now);
+    }
+
+    @Override
+    public Long loadNextLocalNonce(String signer) {
+        requireNonEmpty(signer, "signer");
+        return stateMapper.selectNextLocalNonce(signer);
+    }
+
+    @Override
+    public int casAdvanceNextLocalNonce(String signer, long expected, long newValue, long fencingToken, Instant now) {
+        requireNonEmpty(signer, "signer");
+        return stateMapper.casAdvanceNextLocalNonce(signer, expected, newValue, fencingToken, now);
+    }
+
+    @Override
+    public Long claimOldestRecyclable(String signer, Instant lockedUntil, Instant now, long fencingToken) {
+        requireNonEmpty(signer, "signer");
+        requireNonNull(lockedUntil, "lockedUntil");
+        requireNonNull(now, "now");
+        return allocationMapper.claimOldestRecyclable(signer, lockedUntil, now, fencingToken);
     }
     
     /**
@@ -131,6 +174,24 @@ public class PostgresNonceRepository implements NonceRepository {
     }
 
     @Override
+    public List<NonceAllocation> recycleExpiredReservationsFenced(String signer, Duration reservedTimeout, long fencingToken) {
+        requireNonEmpty(signer, "signer");
+        requirePositive(reservedTimeout, "reservedTimeout");
+
+        Instant now = Instant.now();
+        Instant expireBefore = now.minus(reservedTimeout);
+
+        List<NonceAllocationEntity> expiredEntities = allocationMapper.findExpiredReservations(signer, expireBefore);
+        allocationMapper.recycleExpiredReservationsFenced(signer, expireBefore, now, fencingToken);
+
+        List<NonceAllocation> result = new ArrayList<>(expiredEntities.size());
+        for (NonceAllocationEntity entity : expiredEntities) {
+            result.add(convertToAllocation(entity));
+        }
+        return result;
+    }
+
+    @Override
     public Optional<NonceAllocation> findOldestRecyclable(String signer) {
         requireNonEmpty(signer, "signer");
 
@@ -156,7 +217,7 @@ public class PostgresNonceRepository implements NonceRepository {
         }
         
         // 使用 INSERT ... ON CONFLICT 插入或更新（原子操作）
-        int updated = allocationMapper.reserveNonce(signer, nonce, lockedUntil, now, now);
+        int updated = allocationMapper.reserveNonce(signer, nonce, lockedUntil, now, now, 0L);
         
         if (updated == 0) {
             // 如果更新失败，再次检查状态（可能是并发导致状态变为 CONSUMED）
@@ -173,6 +234,25 @@ public class PostgresNonceRepository implements NonceRepository {
             throw new NonceException("reserve nonce 后查询失败: " + signer + "#" + nonce);
         }
         
+        return convertToAllocation(resultEntity);
+    }
+
+    @Override
+    public NonceAllocation reserveNonceFenced(String signer, long nonce, Duration lockTtl, long fencingToken) {
+        requireNonEmpty(signer, "signer");
+        requirePositive(lockTtl, "lockTtl");
+
+        Instant now = Instant.now();
+        Instant lockedUntil = now.plus(lockTtl);
+
+        int updated = allocationMapper.reserveNonce(signer, nonce, lockedUntil, now, now, fencingToken);
+        if (updated == 0) {
+            throw new LeaseNotOwnedException("reserve nonce fenced 被 fencing 拒绝（可能 lease 丢失或 nonce 已终局）: " + signer + "#" + nonce);
+        }
+        NonceAllocationEntity resultEntity = allocationMapper.findBySignerAndNonce(signer, nonce);
+        if (resultEntity == null) {
+            throw new NonceException("reserve nonce fenced 后查询失败: " + signer + "#" + nonce);
+        }
         return convertToAllocation(resultEntity);
     }
 
@@ -212,6 +292,33 @@ public class PostgresNonceRepository implements NonceRepository {
     }
 
     @Override
+    public void markUsedFenced(String signer, long nonce, String txHash, long fencingToken) {
+        requireNonEmpty(signer, "signer");
+        requireNonEmpty(txHash, "txHash");
+
+        NonceAllocationEntity entity = allocationMapper.findBySignerAndNonce(signer, nonce);
+        if (entity == null) {
+            throw new NonceException("未找到 allocation: " + signer + "#" + nonce);
+        }
+
+        // 幂等：已消费且 txHash 相同允许
+        if (isConsumedStatus(entity.getStatus())) {
+            if (txHash.equals(entity.getTxHash())) {
+                return;
+            }
+            throw new NonceException("nonce 已使用，不能重复标记: " + signer + "#" + nonce);
+        }
+        if (isReleasedStatus(entity.getStatus())) {
+            throw new NonceException("nonce 已释放，不能标记为 CONSUMED: " + signer + "#" + nonce);
+        }
+
+        int updated = allocationMapper.markUsedFenced(entity.getId(), txHash, Instant.now(), fencingToken);
+        if (updated == 0) {
+            throw new LeaseNotOwnedException("标记 nonce 为 CONSUMED 被 fencing 拒绝（可能 lease 丢失）: " + signer + "#" + nonce);
+        }
+    }
+
+    @Override
     public void markRecyclable(String signer, long nonce, String reason) {
         requireNonEmpty(signer, "signer");
 
@@ -240,6 +347,28 @@ public class PostgresNonceRepository implements NonceRepository {
         int updated = allocationMapper.updateById(entity);
         if (updated == 0) {
             throw new NonceException("标记 nonce 为 RELEASED 失败: " + signer + "#" + nonce);
+        }
+    }
+
+    @Override
+    public void markRecyclableFenced(String signer, long nonce, String reason, long fencingToken) {
+        requireNonEmpty(signer, "signer");
+
+        NonceAllocationEntity entity = allocationMapper.findBySignerAndNonce(signer, nonce);
+        if (entity == null) {
+            throw new NonceException("未找到 allocation: " + signer + "#" + nonce);
+        }
+
+        if (isConsumedStatus(entity.getStatus())) {
+            throw new NonceException("nonce 已终局消费，不能释放: " + signer + "#" + nonce);
+        }
+        if (isReleasedStatus(entity.getStatus())) {
+            return;
+        }
+
+        int updated = allocationMapper.markRecyclableFenced(entity.getId(), reason != null ? reason : "", Instant.now(), fencingToken);
+        if (updated == 0) {
+            throw new LeaseNotOwnedException("标记 nonce 为 RELEASED 被 fencing 拒绝（可能 lease 丢失）: " + signer + "#" + nonce);
         }
     }
 

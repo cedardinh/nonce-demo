@@ -17,6 +17,8 @@ public class SignerNonceStateEntity {
 
     private Long nextLocalNonce;
 
+    private Long fencingToken;
+
     private Instant updatedAt;
 
     private Instant createdAt;
@@ -24,9 +26,10 @@ public class SignerNonceStateEntity {
     public SignerNonceStateEntity() {
     }
 
-    public SignerNonceStateEntity(String signer, Long nextLocalNonce, Instant updatedAt, Instant createdAt) {
+    public SignerNonceStateEntity(String signer, Long nextLocalNonce, Long fencingToken, Instant updatedAt, Instant createdAt) {
         this.signer = signer;
         this.nextLocalNonce = nextLocalNonce;
+        this.fencingToken = fencingToken;
         this.updatedAt = updatedAt;
         this.createdAt = createdAt;
     }
@@ -45,6 +48,14 @@ public class SignerNonceStateEntity {
 
     public void setNextLocalNonce(Long nextLocalNonce) {
         this.nextLocalNonce = nextLocalNonce;
+    }
+
+    public Long getFencingToken() {
+        return fencingToken;
+    }
+
+    public void setFencingToken(Long fencingToken) {
+        this.fencingToken = fencingToken;
     }
 
     public Instant getUpdatedAt() {

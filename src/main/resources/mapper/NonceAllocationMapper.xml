@@ -15,6 +15,20 @@
           AND locked_until &lt; #{expireBefore}
     </update>
 
+    <update id="recycleExpiredReservationsFenced">
+        UPDATE signer_nonce_allocation
+        SET status = 'RELEASED',
+            locked_until = NULL,
+            updated_at = #{now},
+            reason = '超时回收',
+            fencing_token = #{fencingToken}
+        WHERE signer = #{signer}
+          AND status = 'HELD'
+          AND locked_until IS NOT NULL
+          AND locked_until &lt; #{expireBefore}
+          AND fencing_token &lt;= #{fencingToken}
+    </update>
+
     <select id="findOldestRecyclable"
             resultType="com.work.nonce.core.repository.entity.NonceAllocationEntity">
         SELECT id,
@@ -24,6 +38,7 @@
                locked_until,
                tx_hash,
                reason,
+               fencing_token,
                updated_at,
                created_at
         FROM signer_nonce_allocation
@@ -42,6 +57,7 @@
                locked_until,
                tx_hash,
                reason,
+               fencing_token,
                updated_at,
                created_at
         FROM signer_nonce_allocation
@@ -49,20 +65,66 @@
           AND nonce = #{nonce}
     </select>
 
+    <select id="claimOldestRecyclable" resultType="java.lang.Long">
+        UPDATE signer_nonce_allocation
+        SET status = 'HELD',
+            locked_until = #{lockedUntil},
+            updated_at = #{now},
+            fencing_token = #{fencingToken}
+        WHERE id = (
+            SELECT id
+            FROM signer_nonce_allocation
+            WHERE signer = #{signer}
+              AND status = 'RELEASED'
+            ORDER BY nonce ASC
+            LIMIT 1
+        )
+          AND status = 'RELEASED'
+          AND fencing_token &lt;= #{fencingToken}
+        RETURNING nonce
+    </select>
+
     <insert id="reserveNonce">
         INSERT INTO signer_nonce_allocation(
-            signer, nonce, status, locked_until, updated_at, created_at
+            signer, nonce, status, locked_until, fencing_token, updated_at, created_at
         )
         VALUES(
-            #{signer}, #{nonce}, 'HELD', #{lockedUntil}, #{updatedAt}, #{createdAt}
+            #{signer}, #{nonce}, 'HELD', #{lockedUntil}, #{fencingToken}, #{updatedAt}, #{createdAt}
         )
         ON CONFLICT(signer, nonce)
         DO UPDATE SET
             status = 'HELD',
             locked_until = #{lockedUntil},
+            fencing_token = #{fencingToken},
             updated_at = #{updatedAt}
         WHERE signer_nonce_allocation.status != 'CONSUMED'
+          AND signer_nonce_allocation.fencing_token &lt;= #{fencingToken}
     </insert>
+
+    <update id="markUsedFenced">
+        UPDATE signer_nonce_allocation
+        SET status = 'CONSUMED',
+            tx_hash = #{txHash},
+            locked_until = NULL,
+            updated_at = #{now},
+            fencing_token = #{fencingToken}
+        WHERE id = #{id}
+          AND status = 'HELD'
+          AND fencing_token &lt;= #{fencingToken}
+    </update>
+
+    <update id="markRecyclableFenced">
+        UPDATE signer_nonce_allocation
+        SET status = 'RELEASED',
+            tx_hash = NULL,
+            locked_until = NULL,
+            reason = #{reason},
+            updated_at = #{now},
+            fencing_token = #{fencingToken}
+        WHERE id = #{id}
+          AND status = 'HELD'
+          AND fencing_token &lt;= #{fencingToken}
+    </update>
 
     <select id="findExpiredReservations"
             resultType="com.work.nonce.core.repository.entity.NonceAllocationEntity">
@@ -73,6 +135,7 @@
                locked_until,
                tx_hash,
                reason,
+               fencing_token,
                updated_at,
                created_at
         FROM signer_nonce_allocation

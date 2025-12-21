@@ -1,6 +1,8 @@
 package com.work.nonce.demo.web;
 
 import com.work.nonce.demo.service.NonceDemoService;
+import com.work.nonce.demo.config.NonceProperties;
+import com.work.nonce.demo.worker.WorkerQueueDispatcher;
 import com.work.nonce.demo.web.dto.NonceRequest;
 import com.work.nonce.demo.web.dto.NonceResponse;
 import com.work.nonce.demo.web.dto.SimpleNoncePayloadFF;
@@ -20,15 +22,26 @@ import org.springframework.web.bind.annotation.RestController;
 public class NonceController {
 
     private final NonceDemoService nonceDemoService;
+    private final NonceProperties properties;
+    private final WorkerQueueDispatcher dispatcher;
 
-    public NonceController(NonceDemoService nonceDemoService) {
+    public NonceController(NonceDemoService nonceDemoService,
+                           NonceProperties properties,
+                           WorkerQueueDispatcher dispatcher) {
         this.nonceDemoService = nonceDemoService;
+        this.properties = properties;
+        this.dispatcher = dispatcher;
     }
 
     @PostMapping("/{signer}")
     public ResponseEntity<NonceResponse<SimpleNoncePayloadFF>> allocateAndExecute(@PathVariable String signer,
                                                                                   @Validated @RequestBody NonceRequest request) {
-        NonceResponse<SimpleNoncePayloadFF> response = nonceDemoService.refund(signer, request.getPayload());
+        NonceResponse<SimpleNoncePayloadFF> response;
+        if ("worker-queue".equalsIgnoreCase(properties.getMode())) {
+            response = dispatcher.dispatch(signer, () -> nonceDemoService.refund(signer, request.getPayload()));
+        } else {
+            response = nonceDemoService.refund(signer, request.getPayload());
+        }
         return ResponseEntity.ok(response);
     }
 }

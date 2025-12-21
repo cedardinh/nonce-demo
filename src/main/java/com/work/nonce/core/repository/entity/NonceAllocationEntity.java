@@ -28,6 +28,8 @@ public class NonceAllocationEntity {
     private String txHash;
     
     private String reason;
+
+    private Long fencingToken;
     
     private Instant updatedAt;
     
@@ -90,6 +92,14 @@ public class NonceAllocationEntity {
 
     public void setReason(String reason) {
         this.reason = reason;
+    }
+
+    public Long getFencingToken() {
+        return fencingToken;
+    }
+
+    public void setFencingToken(Long fencingToken) {
+        this.fencingToken = fencingToken;
     }
 
     public Instant getUpdatedAt() {

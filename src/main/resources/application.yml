@@ -39,3 +39,7 @@ mybatis-plus:
 nonce:
   lock-ttl: 10s
   reserved-timeout: 30s
+  lease-ttl: 10s
+  node-id: ""
+  mode: basic
+  worker-count: 8

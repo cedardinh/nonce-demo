@@ -10,15 +10,21 @@ public class NonceConfig {
 
     private final Duration lockTtl;
     private final Duration reservedTimeout;
+    private final Duration leaseTtl;
+    private final String ownerId;
 
     public NonceConfig(Duration lockTtl,
-                       Duration reservedTimeout) {
+                       Duration reservedTimeout,
+                       Duration leaseTtl,
+                       String ownerId) {
         this.lockTtl = lockTtl;
         this.reservedTimeout = reservedTimeout;
+        this.leaseTtl = leaseTtl;
+        this.ownerId = ownerId;
     }
 
     public static NonceConfig defaultConfig() {
-        return new NonceConfig(Duration.ofSeconds(10), Duration.ofSeconds(30));
+        return new NonceConfig(Duration.ofSeconds(10), Duration.ofSeconds(30), Duration.ofSeconds(10), "local");
     }
 
     public Duration getLockTtl() {
@@ -27,6 +33,14 @@ public class NonceConfig {
 
     public Duration getReservedTimeout() {
         return reservedTimeout;
+    }
+
+    public Duration getLeaseTtl() {
+        return leaseTtl;
+    }
+
+    public String getOwnerId() {
+        return ownerId;
     }
 }
 

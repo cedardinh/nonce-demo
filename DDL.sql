@@ -17,6 +17,7 @@
 CREATE TABLE signer_nonce_state (
     signer VARCHAR(128) PRIMARY KEY,
     next_local_nonce BIGINT NOT NULL DEFAULT 0,
+    fencing_token BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -36,11 +37,9 @@ CREATE TABLE signer_nonce_allocation (
 -- 1.3 分布式租约表（阶段 1 设计）：signer 级排他执行权（fencing + expiry）
 CREATE TABLE signer_lease (
     signer VARCHAR(128) PRIMARY KEY,
-    owner_node VARCHAR(256) NOT NULL,
+    owner_id VARCHAR(256) NOT NULL,
     fencing_token BIGINT NOT NULL,
-    acquired_at TIMESTAMPTZ NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
+    expires_at TIMESTAMPTZ NOT NULL
 );
 -- ============================================================
 -- 2) COMMENT（字段含义注释）
@@ -48,6 +47,7 @@ CREATE TABLE signer_lease (
 COMMENT ON TABLE signer_nonce_state IS '每个 signer 的本地 nonce 分配状态（以 DB 为真相）。';
 COMMENT ON COLUMN signer_nonce_state.signer IS '签名者标识（业务主键）。';
 COMMENT ON COLUMN signer_nonce_state.next_local_nonce IS '下一次要分配的 nonce 起点（本地分配游标/水位）。';
+COMMENT ON COLUMN signer_nonce_state.fencing_token IS '防旧主写入 token（用于租约 fencing；最后一次合法写入的 token）。';
 COMMENT ON COLUMN signer_nonce_state.updated_at IS '更新时间（由应用写入或默认 NOW()）。';
 COMMENT ON COLUMN signer_nonce_state.created_at IS '创建时间（默认 NOW()）。';
 COMMENT ON TABLE signer_nonce_allocation IS 'nonce 分配与生命周期记录（HELD/RELEASED/CONSUMED），用于复用、回收与幂等。';
@@ -63,16 +63,16 @@ COMMENT ON COLUMN signer_nonce_allocation.updated_at IS '更新时间（状态�
 COMMENT ON COLUMN signer_nonce_allocation.created_at IS '创建时间（首次插入时）。';
 COMMENT ON TABLE signer_lease IS 'signer 级分布式租约（排他执行权 + fencing token + 过期时间）。';
 COMMENT ON COLUMN signer_lease.signer IS '签名者标识（业务主键）。';
-COMMENT ON COLUMN signer_lease.owner_node IS '当前租约持有节点标识（例如 instanceId/hostname）。';
+COMMENT ON COLUMN signer_lease.owner_id IS '当前租约持有节点标识（例如 instanceId/hostname）。';
 COMMENT ON COLUMN signer_lease.fencing_token IS '单调递增 fencing token（用于拒绝旧主写入）。';
-COMMENT ON COLUMN signer_lease.acquired_at IS '租约获取时间。';
-COMMENT ON COLUMN signer_lease.expires_at IS '租约过期时间（必须大于 acquired_at）。';
-COMMENT ON COLUMN signer_lease.updated_at IS '租约更新时间（续约/抢占时更新）。';
+COMMENT ON COLUMN signer_lease.expires_at IS '租约过期时间。';
 -- ============================================================
 -- 3) CONSTRAINTS（约束：UNIQUE/CHECK 等）
 -- ============================================================
 ALTER TABLE signer_nonce_state
 ADD CONSTRAINT ck_signer_nonce_state_next_local_nonnegative CHECK (next_local_nonce >= 0);
+ALTER TABLE signer_nonce_state
+ADD CONSTRAINT ck_signer_nonce_state_fencing_nonnegative CHECK (fencing_token >= 0);
 ALTER TABLE signer_nonce_allocation
 ADD CONSTRAINT ck_signer_nonce_allocation_nonce_nonnegative CHECK (nonce >= 0);
 ALTER TABLE signer_nonce_allocation
@@ -108,8 +108,6 @@ ADD CONSTRAINT ck_sna_consumed_requires_tx_hash_and_no_lock_fields CHECK (
     );
 ALTER TABLE signer_lease
 ADD CONSTRAINT ck_signer_lease_fencing_nonnegative CHECK (fencing_token >= 0);
-ALTER TABLE signer_lease
-ADD CONSTRAINT ck_signer_lease_expires_after_acquired CHECK (expires_at > acquired_at);
 -- ============================================================
 -- 4) INDEXES（索引）
 -- ============================================================
@@ -134,4 +132,4 @@ CREATE INDEX idx_sna_signer_fencing_token ON signer_nonce_allocation(signer, fen
 CREATE INDEX idx_sna_signer_status ON signer_nonce_allocation(signer, status);
 -- 租约过期扫描/按节点查看持有情况
 CREATE INDEX idx_signer_lease_expires_at ON signer_lease(expires_at);
-CREATE INDEX idx_signer_lease_owner_node ON signer_lease(owner_node);
+CREATE INDEX idx_signer_lease_owner_id ON signer_lease(owner_id);

@@ -19,6 +19,11 @@ public interface NonceAllocationMapper extends BaseMapper<NonceAllocationEntity>
                                    @Param("expireBefore") Instant expireBefore,
                                    @Param("now") Instant now);
 
+    int recycleExpiredReservationsFenced(@Param("signer") String signer,
+                                         @Param("expireBefore") Instant expireBefore,
+                                         @Param("now") Instant now,
+                                         @Param("fencingToken") Long fencingToken);
+
     /**
      * 查找最小的 RELEASED 记录（兼容旧 RECYCLABLE）
      */
@@ -30,6 +35,14 @@ public interface NonceAllocationMapper extends BaseMapper<NonceAllocationEntity>
     NonceAllocationEntity findBySignerAndNonce(@Param("signer") String signer, @Param("nonce") Long nonce);
 
     /**
+     * claim 最小 RELEASED：将其更新为 HELD 并设置 locked_until，成功返回 nonce，失败返回 null。
+     */
+    Long claimOldestRecyclable(@Param("signer") String signer,
+                               @Param("lockedUntil") Instant lockedUntil,
+                               @Param("now") Instant now,
+                               @Param("fencingToken") Long fencingToken);
+
+    /**
      * 插入或更新 nonce 为 HELD 状态（使用 ON CONFLICT）
      * 注意：PostgreSQL 的 ON CONFLICT 语法，WHERE 子句在 DO UPDATE 中
      */
@@ -37,7 +50,18 @@ public interface NonceAllocationMapper extends BaseMapper<NonceAllocationEntity>
                      @Param("nonce") Long nonce,
                      @Param("lockedUntil") Instant lockedUntil,
                      @Param("updatedAt") Instant updatedAt,
-                     @Param("createdAt") Instant createdAt);
+                     @Param("createdAt") Instant createdAt,
+                     @Param("fencingToken") Long fencingToken);
+
+    int markUsedFenced(@Param("id") Long id,
+                       @Param("txHash") String txHash,
+                       @Param("now") Instant now,
+                       @Param("fencingToken") Long fencingToken);
+
+    int markRecyclableFenced(@Param("id") Long id,
+                             @Param("reason") String reason,
+                             @Param("now") Instant now,
+                             @Param("fencingToken") Long fencingToken);
 
     /**
      * 查询被回收的记录（用于日志）

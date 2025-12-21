@@ -10,6 +10,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.UUID;
+
 /**
  * 将核心组件装配为 Spring Bean，方便通过依赖注入复用。
  * 生产环境使用 PostgreSQL + Redis 实现。
@@ -31,9 +33,15 @@ public class NonceComponentConfiguration {
 
     @Bean
     public NonceConfig nonceConfig(NonceProperties properties) {
+        String nodeId = properties.getNodeId();
+        if (nodeId == null || nodeId.trim().isEmpty()) {
+            nodeId = UUID.randomUUID().toString();
+        }
         return new NonceConfig(
                 properties.getLockTtl(),
-                properties.getReservedTimeout()
+                properties.getReservedTimeout(),
+                properties.getLeaseTtl(),
+                nodeId
         );
     }
 

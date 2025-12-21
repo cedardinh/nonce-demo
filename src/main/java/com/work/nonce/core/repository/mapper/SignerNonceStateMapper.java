@@ -17,6 +17,20 @@ public interface SignerNonceStateMapper extends BaseMapper<SignerNonceStateEntit
     SignerNonceStateEntity lockAndLoadBySigner(@Param("signer") String signer);
 
     /**
+     * 读取 next_local_nonce（不加行锁）。
+     */
+    Long selectNextLocalNonce(@Param("signer") String signer);
+
+    /**
+     * CAS 推进 next_local_nonce：expected -> newValue，并推进 fencing_token。
+     */
+    int casAdvanceNextLocalNonce(@Param("signer") String signer,
+                                 @Param("expected") Long expected,
+                                 @Param("newValue") Long newValue,
+                                 @Param("fencingToken") Long fencingToken,
+                                 @Param("now") Instant now);
+
+    /**
      * 插入新状态（如果不存在）。
      * 注意：PostgreSQL 的 ON CONFLICT 语法。
      */

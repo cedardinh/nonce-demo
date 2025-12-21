@@ -7,19 +7,35 @@
             resultType="com.work.nonce.core.repository.entity.SignerNonceStateEntity">
         SELECT signer,
                next_local_nonce,
+               fencing_token,
                updated_at,
                created_at
         FROM signer_nonce_state
         WHERE signer = #{signer}
-        FOR UPDATE
     </select>
+
+    <select id="selectNextLocalNonce" resultType="java.lang.Long">
+        SELECT next_local_nonce
+        FROM signer_nonce_state
+        WHERE signer = #{signer}
+    </select>
+
+    <update id="casAdvanceNextLocalNonce">
+        UPDATE signer_nonce_state
+        SET next_local_nonce = #{newValue},
+            fencing_token = #{fencingToken},
+            updated_at = #{now}
+        WHERE signer = #{signer}
+          AND next_local_nonce = #{expected}
+          AND fencing_token &lt;= #{fencingToken}
+    </update>
 
     <insert id="insertIfNotExists">
         INSERT INTO signer_nonce_state(
-            signer, next_local_nonce, updated_at, created_at
+            signer, next_local_nonce, fencing_token, updated_at, created_at
         )
         VALUES(
-            #{signer}, #{nextLocalNonce}, #{updatedAt}, #{createdAt}
+            #{signer}, #{nextLocalNonce}, 0, #{updatedAt}, #{createdAt}
         )
         ON CONFLICT(signer) DO NOTHING
     </insert>
