@@ -15,8 +15,6 @@ public class NonceProperties {
     private Duration reservedTimeout = Duration.ofSeconds(30);
     private Duration leaseTtl = Duration.ofSeconds(10);
     private String nodeId = "";
-    private String mode = "basic"; // basic | worker-queue
-    private int workerCount = 8;
 
     public Duration getLockTtl() {
         return lockTtl;
@@ -48,22 +46,6 @@ public class NonceProperties {
 
     public void setNodeId(String nodeId) {
         this.nodeId = nodeId;
-    }
-
-    public String getMode() {
-        return mode;
-    }
-
-    public void setMode(String mode) {
-        this.mode = mode;
-    }
-
-    public int getWorkerCount() {
-        return workerCount;
-    }
-
-    public void setWorkerCount(int workerCount) {
-        this.workerCount = workerCount;
     }
 }
 
