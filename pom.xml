@@ -58,18 +58,6 @@
             <scope>runtime</scope>
         </dependency>
         
-        <!-- Spring Data Redis -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
-        
-        <!-- Redis连接池 -->
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-pool2</artifactId>
-        </dependency>
-        
         <!-- Lombok (可选，用于简化代码) -->
         <dependency>
             <groupId>org.projectlombok</groupId>

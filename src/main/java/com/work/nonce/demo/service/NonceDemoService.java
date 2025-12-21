@@ -23,15 +23,15 @@ public class NonceDemoService {
         this.chainClient = chainClient;
     }
 
-    public NonceResponse<SimpleNoncePayloadFF> refund(String submitter, String payload) {
+    public NonceResponse<SimpleNoncePayloadFF> refund(String signer, String payload) {
         AtomicLong nonceHolder = new AtomicLong();
-        NonceExecutionResult result = nonceComponent.withNonce(submitter, ctx -> {
+        NonceExecutionResult result = nonceComponent.withNonce(signer, ctx -> {
             nonceHolder.set(ctx.getNonce());
-            String txHash = chainClient.sendTransaction(ctx.getSubmitter(), ctx.getNonce(), payload);
+            String txHash = chainClient.sendTransaction(ctx.getSigner(), ctx.getNonce(), payload);
             return NonceExecutionResult.success(txHash);
         });
         SimpleNoncePayloadFF responsePayload = new SimpleNoncePayloadFF(result.getTxHash(), payload);
-        return NonceResponse.of(submitter, nonceHolder.get(), responsePayload);
+        return NonceResponse.of(signer, nonceHolder.get(), responsePayload);
     }
 }
 

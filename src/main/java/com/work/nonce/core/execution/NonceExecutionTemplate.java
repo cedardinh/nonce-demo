@@ -29,30 +29,30 @@ public class NonceExecutionTemplate {
      * 流程：
      * 1. 分配nonce
      * 2. 执行业务handler
-     * 3. 根据执行结果更新nonce状态（SUCCESS -> USED, NON_RETRYABLE_FAILURE -> RECYCLABLE）
-     * 4. RETRYABLE_FAILURE保持RESERVED状态，由业务自行重试
+     * 3. 根据执行结果更新nonce状态（SUCCESS -> CONSUMED, NON_RETRYABLE_FAILURE -> RELEASED）
+     * 4. RETRYABLE_FAILURE保持 HELD 状态，由业务自行重试
      *
-     * @param submitter submitter标识
+     * @param signer signer 标识
      * @param handler   业务处理逻辑
      * @return 执行结果
      * @throws NonceException 如果handler返回null或执行过程中发生异常
      */
-    public NonceExecutionResult execute(String submitter, NonceExecutionHandler handler) {
-        requireNonEmpty(submitter, "submitter");
+    public NonceExecutionResult execute(String signer, NonceExecutionHandler handler) {
+        requireNonEmpty(signer, "signer");
         requireNonNull(handler, "handler");
 
         NonceAllocation allocation = null;
         try {
             // 分配nonce
-            allocation = nonceService.allocate(submitter);
-            NonceExecutionContext ctx = new NonceExecutionContext(submitter, allocation.getNonce());
+            allocation = nonceService.allocate(signer);
+            NonceExecutionContext ctx = new NonceExecutionContext(signer, allocation.getNonce());
 
             // 执行业务handler
             NonceExecutionResult result = handler.handle(ctx);
             validateResult(result);
 
             // 根据执行结果更新状态
-            updateAllocationStatus(submitter, allocation, result);
+            updateAllocationStatus(signer, allocation, result);
 
             return result;
 
@@ -64,7 +64,7 @@ public class NonceExecutionTemplate {
             if (allocation != null) {
                 try {
                     String reason = "handler exception: " + (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName());
-                    nonceService.markRecyclable(submitter, allocation.getNonce(), reason);
+                    nonceService.markRecyclable(signer, allocation.getNonce(), reason);
                 } catch (Exception recycleEx) {
                     // 如果回收失败，包装异常信息
                     throw new NonceException("handler 执行异常且回收nonce失败", ex);
@@ -93,17 +93,17 @@ public class NonceExecutionTemplate {
     /**
      * 根据执行结果更新allocation状态
      */
-    private void updateAllocationStatus(String submitter, NonceAllocation allocation, NonceExecutionResult result) {
+    private void updateAllocationStatus(String signer, NonceAllocation allocation, NonceExecutionResult result) {
         switch (result.getOutcome()) {
             case SUCCESS:
                 // 业务成功，标记为已使用
-                nonceService.markUsed(submitter, allocation.getNonce(), result.getTxHash());
+                nonceService.markUsed(signer, allocation.getNonce(), result.getTxHash());
                 break;
 
             case NON_RETRYABLE_FAILURE:
                 // 不可重试的失败，回收nonce
                 String reason = result.getReason() != null ? result.getReason() : "non-retryable failure";
-                nonceService.markRecyclable(submitter, allocation.getNonce(), reason);
+                nonceService.markRecyclable(signer, allocation.getNonce(), reason);
                 break;
 
             case RETRYABLE_FAILURE:

@@ -4,37 +4,35 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * 表示一条 submitter + nonce 的状态记录。
+ * 表示一条 signer + nonce 的状态记录。
  * 
  * 注意：
- * 1. id、submitter、nonce是不可变字段，创建后不能修改
- * 2. status、lockOwner、lockedUntil、txHash、updatedAt是可变字段，会在状态转换时更新
+ * 1. id、signer、nonce是不可变字段，创建后不能修改
+ * 2. status、lockedUntil、txHash、updatedAt是可变字段，会在状态转换时更新
  * 3. 此对象主要在事务中使用，线程安全性由事务保证
  */
 public class NonceAllocation {
 
     private final long id;
-    private final String submitter;
+    private final String signer;
     private final long nonce;
     private NonceAllocationStatus status;
-    private String lockOwner;
     private Instant lockedUntil;
     private String txHash;
     private Instant updatedAt;
 
     public NonceAllocation(long id,
-                           String submitter,
+                           String signer,
                            long nonce,
                            NonceAllocationStatus status,
-                           String lockOwner,
                            Instant lockedUntil,
                            String txHash,
                            Instant updatedAt) {
         if (id <= 0) {
             throw new IllegalArgumentException("id 必须大于0");
         }
-        if (submitter == null || submitter.trim().isEmpty()) {
-            throw new IllegalArgumentException("submitter 不能为空");
+        if (signer == null || signer.trim().isEmpty()) {
+            throw new IllegalArgumentException("signer 不能为空");
         }
         if (nonce < 0) {
             throw new IllegalArgumentException("nonce 不能为负数");
@@ -47,10 +45,9 @@ public class NonceAllocation {
         }
         
         this.id = id;
-        this.submitter = submitter;
+        this.signer = signer;
         this.nonce = nonce;
         this.status = status;
-        this.lockOwner = lockOwner;
         this.lockedUntil = lockedUntil;
         this.txHash = txHash;
         this.updatedAt = updatedAt;
@@ -60,8 +57,8 @@ public class NonceAllocation {
         return id;
     }
 
-    public String getSubmitter() {
-        return submitter;
+    public String getSigner() {
+        return signer;
     }
 
     public long getNonce() {
@@ -77,14 +74,6 @@ public class NonceAllocation {
             throw new IllegalArgumentException("status 不能为null");
         }
         this.status = status;
-    }
-
-    public String getLockOwner() {
-        return lockOwner;
-    }
-
-    public void setLockOwner(String lockOwner) {
-        this.lockOwner = lockOwner;
     }
 
     public Instant getLockedUntil() {
@@ -131,10 +120,9 @@ public class NonceAllocation {
     public String toString() {
         return "NonceAllocation{" +
                 "id=" + id +
-                ", submitter='" + submitter + '\'' +
+                ", signer='" + signer + '\'' +
                 ", nonce=" + nonce +
                 ", status=" + status +
-                ", lockOwner='" + lockOwner + '\'' +
                 ", lockedUntil=" + lockedUntil +
                 ", txHash='" + txHash + '\'' +
                 ", updatedAt=" + updatedAt +

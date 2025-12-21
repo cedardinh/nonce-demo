@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.work.nonce.core.repository.mapper.SignerNonceStateMapper">
+
+    <select id="lockAndLoadBySigner"
+            resultType="com.work.nonce.core.repository.entity.SignerNonceStateEntity">
+        SELECT signer,
+               next_local_nonce,
+               updated_at,
+               created_at
+        FROM signer_nonce_state
+        WHERE signer = #{signer}
+        FOR UPDATE
+    </select>
+
+    <insert id="insertIfNotExists">
+        INSERT INTO signer_nonce_state(
+            signer, next_local_nonce, updated_at, created_at
+        )
+        VALUES(
+            #{signer}, #{nextLocalNonce}, #{updatedAt}, #{createdAt}
+        )
+        ON CONFLICT(signer) DO NOTHING
+    </insert>
+
+</mapper>
+
+

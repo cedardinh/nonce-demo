@@ -11,7 +11,7 @@ public class NonceExecutionResult {
          */
         SUCCESS,
         /**
-         * 可重试错误，保持 RESERVED，交由上层重试。
+         * 可重试错误，保持 HELD，交由上层重试。
          */
         RETRYABLE_FAILURE,
         /**

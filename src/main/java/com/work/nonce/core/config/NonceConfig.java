@@ -8,28 +8,17 @@ import java.time.Duration;
  */
 public class NonceConfig {
 
-    private final boolean redisEnabled;
     private final Duration lockTtl;
     private final Duration reservedTimeout;
-    private final boolean degradeOnRedisFailure;
 
-    public NonceConfig(boolean redisEnabled,
-                       Duration lockTtl,
-                       Duration reservedTimeout,
-                       boolean degradeOnRedisFailure) {
-        this.redisEnabled = redisEnabled;
+    public NonceConfig(Duration lockTtl,
+                       Duration reservedTimeout) {
         this.lockTtl = lockTtl;
         this.reservedTimeout = reservedTimeout;
-        this.degradeOnRedisFailure = degradeOnRedisFailure;
     }
 
     public static NonceConfig defaultConfig() {
-        // 默认不启用 Redis 分布式锁：仅依赖数据库事务/行锁保证正确性，降低本地与早期环境的依赖复杂度
-        return new NonceConfig(false, Duration.ofSeconds(10), Duration.ofSeconds(30), true);
-    }
-
-    public boolean isRedisEnabled() {
-        return redisEnabled;
+        return new NonceConfig(Duration.ofSeconds(10), Duration.ofSeconds(30));
     }
 
     public Duration getLockTtl() {
@@ -38,10 +27,6 @@ public class NonceConfig {
 
     public Duration getReservedTimeout() {
         return reservedTimeout;
-    }
-
-    public boolean isDegradeOnRedisFailure() {
-        return degradeOnRedisFailure;
     }
 }
 

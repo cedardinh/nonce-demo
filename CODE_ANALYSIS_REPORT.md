@@ -1,5 +1,7 @@
 # Nonce Demo 代码安全与性能分析报告
 
+> **术语说明**：业务与数据库统一使用 **signer** 命名。
+
 ## 目录
 1. [使用前提与适用范围](#使用前提与适用范围)
 2. [显性问题（Explicit Issues）](#显性问题)
@@ -95,10 +97,9 @@ private final Map<String, LockInfo> locks = new ConcurrentHashMap<>();
 ```java
 NonceAllocation allocation = allocations.computeIfAbsent(nonce, key ->
     new NonceAllocation(idGenerator.getAndIncrement(), submitter, nonce,
-        NonceAllocationStatus.RESERVED, lockOwner,
+        NonceAllocationStatus.RESERVED,
         Instant.now().plus(lockTtl), null, Instant.now()));
 allocation.setStatus(NonceAllocationStatus.RESERVED);
-allocation.setLockOwner(lockOwner);
 allocation.setLockedUntil(Instant.now().plus(lockTtl));
 ```
 
@@ -160,7 +161,6 @@ allocation.setLockedUntil(Instant.now().plus(lockTtl));
 ```java
 public NonceAllocation allocate(String submitter) {
     // 没有验证 submitter 是否为 null、空字符串、或包含非法字符
-    String lockOwner = UUID.randomUUID().toString();
     // ...
 }
 ```
@@ -220,7 +220,7 @@ public NonceAllocation allocate(String submitter) {
 ```java
 } finally {
     if (locked) {
-        redisLockManager.unlock(submitter, lockOwner);
+        // unlock
     }
 }
 ```
@@ -235,12 +235,12 @@ public NonceAllocation allocate(String submitter) {
 
 ---
 
-#### 10. `lastChainNonce` 从未使用
-**位置**: `SubmitterNonceState.java:11, 30-36`
+#### 10. 链上确认水位字段从未使用（已移除）
+**位置**:（历史版本中位于 `SubmitterNonceState`）
 
 **问题描述**:
-- `lastChainNonce` 字段存在但从未被读取或更新
-- README 中描述该字段用于记录链上已确认的 nonce，但代码中没有实现
+- 历史版本中存在“链上确认水位”字段，但未被读取或更新
+- 文档曾描述该字段用于对账，但实现缺失
 
 **影响**: 
 - 灾难恢复功能缺失
@@ -1030,7 +1030,7 @@ public class PostgresNonceRepository implements NonceRepository {
     public SubmitterNonceState lockAndLoadState(String submitter) {
         // 必须在事务内部调用，依赖调用方的 @Transactional
         SubmitterNonceState state = jdbc.query(
-            "SELECT submitter, last_chain_nonce, next_local_nonce, updated_at " +
+            "SELECT submitter, next_local_nonce, updated_at " +
             "FROM submitter_nonce_state WHERE submitter = ? FOR UPDATE",
             rs -> rs.next() ? mapState(rs) : null,
             submitter
@@ -1038,11 +1038,11 @@ public class PostgresNonceRepository implements NonceRepository {
         if (state == null) {
             Instant now = Instant.now();
             jdbc.update(
-                "INSERT INTO submitter_nonce_state(submitter, last_chain_nonce, next_local_nonce, updated_at) " +
-                "VALUES(?, ?, ?, ?)",
-                submitter, -1L, 0L, now
+                "INSERT INTO submitter_nonce_state(submitter, next_local_nonce, updated_at) " +
+                "VALUES(?, ?, ?)",
+                submitter, 0L, now
             );
-            state = new SubmitterNonceState(submitter, -1L, 0L, now);
+            state = new SubmitterNonceState(submitter, 0L, now);
         }
         return state;
     }
@@ -1050,57 +1050,23 @@ public class PostgresNonceRepository implements NonceRepository {
     // 其余接口方法的语义要求如下（实现时必须满足）：
     // - recycleExpiredReservations(submitter, reservedTimeout):
     //     将该 submitter 下 locked_until < now - reservedTimeout 的 RESERVED 记录批量更新为 RECYCLABLE，
-    //     清空 lock_owner/locked_until，更新 updated_at，并返回被回收的记录列表（用于日志/监控）。
+    //     清空 locked_until，更新 updated_at，并返回被回收的记录列表（用于日志/监控）。
     // - findOldestRecyclable(submitter):
     //     查询 status = RECYCLABLE 且 nonce 最小的记录，使用 ORDER BY nonce ASC LIMIT 1，并走索引。
-    // - reserveNonce(submitter, nonce, lockOwner, lockTtl):
+    // - reserveNonce(submitter, nonce, lockTtl):
     //     使用 INSERT ... ON CONFLICT(submitter, nonce) DO UPDATE 语句，将指定 nonce 标记为 RESERVED，
-    //     设置 lock_owner/locked_until/updated_at，并返回最新记录；依赖数据库唯一约束避免重复号。
+    //     设置 locked_until/updated_at，并返回最新记录；依赖数据库唯一约束避免重复号。
     // - markUsed(submitter, nonce, txHash):
-    //     将指定记录标记为 USED，写入 txHash，清空 lock_owner/locked_until，更新 updated_at；
+    //     将指定记录标记为 USED，写入 txHash，清空 locked_until，更新 updated_at；
     //     若未找到记录应抛出异常，避免静默失败。
     // - markRecyclable(submitter, nonce, reason):
-    //     将指定记录标记为 RECYCLABLE，清空 txHash/lock_owner/locked_until，更新 updated_at；
+    //     将指定记录标记为 RECYCLABLE，清空 txHash/locked_until，更新 updated_at；
     //     reason 可按需写入审计表/日志，但不影响主表状态。
 }
 ```
 
-#### 使用真实的 Redis 分布式锁
-```java
-// RedisDistributedLockManager.java
-@Component
-public class RedisDistributedLockManager implements RedisLockManager {
-    
-    @Autowired
-    private StringRedisTemplate redisTemplate;
-    
-    @Override
-    public boolean tryLock(String submitter, String lockOwner, Duration ttl) {
-        String key = "nonce:lock:" + submitter;
-        Boolean result = redisTemplate.opsForValue().setIfAbsent(
-            key, lockOwner, ttl.getSeconds(), TimeUnit.SECONDS
-        );
-        return Boolean.TRUE.equals(result);
-    }
-    
-    @Override
-    public void unlock(String submitter, String lockOwner) {
-        String key = "nonce:lock:" + submitter;
-        // Lua 脚本确保只删除自己的锁
-        String script = 
-            "if redis.call('get', KEYS[1]) == ARGV[1] then " +
-            "    return redis.call('del', KEYS[1]) " +
-            "else " +
-            "    return 0 " +
-            "end";
-        redisTemplate.execute(
-            new DefaultRedisScript<>(script, Long.class),
-            Collections.singletonList(key),
-            lockOwner
-        );
-    }
-}
-```
+#### （已移除）Redis 分布式锁示例
+当前工程已不再包含 Redis 分布式锁相关代码与配置，该段示例已移除以避免误导。
 
 ---
 

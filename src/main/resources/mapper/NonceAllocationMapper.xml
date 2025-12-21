@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.work.nonce.core.repository.mapper.NonceAllocationMapper">
+
+    <update id="recycleExpiredReservations">
+        UPDATE signer_nonce_allocation
+        SET status = 'RELEASED',
+            locked_until = NULL,
+            updated_at = #{now},
+            reason = '超时回收'
+        WHERE signer = #{signer}
+          AND status = 'HELD'
+          AND locked_until IS NOT NULL
+          AND locked_until &lt; #{expireBefore}
+    </update>
+
+    <select id="findOldestRecyclable"
+            resultType="com.work.nonce.core.repository.entity.NonceAllocationEntity">
+        SELECT id,
+               signer,
+               nonce,
+               status,
+               locked_until,
+               tx_hash,
+               reason,
+               updated_at,
+               created_at
+        FROM signer_nonce_allocation
+        WHERE signer = #{signer}
+          AND status = 'RELEASED'
+        ORDER BY nonce ASC
+        LIMIT 1
+    </select>
+
+    <select id="findBySignerAndNonce"
+            resultType="com.work.nonce.core.repository.entity.NonceAllocationEntity">
+        SELECT id,
+               signer,
+               nonce,
+               status,
+               locked_until,
+               tx_hash,
+               reason,
+               updated_at,
+               created_at
+        FROM signer_nonce_allocation
+        WHERE signer = #{signer}
+          AND nonce = #{nonce}
+    </select>
+
+    <insert id="reserveNonce">
+        INSERT INTO signer_nonce_allocation(
+            signer, nonce, status, locked_until, updated_at, created_at
+        )
+        VALUES(
+            #{signer}, #{nonce}, 'HELD', #{lockedUntil}, #{updatedAt}, #{createdAt}
+        )
+        ON CONFLICT(signer, nonce)
+        DO UPDATE SET
+            status = 'HELD',
+            locked_until = #{lockedUntil},
+            updated_at = #{updatedAt}
+        WHERE signer_nonce_allocation.status != 'CONSUMED'
+    </insert>
+
+    <select id="findExpiredReservations"
+            resultType="com.work.nonce.core.repository.entity.NonceAllocationEntity">
+        SELECT id,
+               signer,
+               nonce,
+               status,
+               locked_until,
+               tx_hash,
+               reason,
+               updated_at,
+               created_at
+        FROM signer_nonce_allocation
+        WHERE signer = #{signer}
+          AND status = 'HELD'
+          AND locked_until IS NOT NULL
+          AND locked_until &lt; #{expireBefore}
+    </select>
+
+</mapper>
+
+

@@ -19,7 +19,6 @@ import org.springframework.context.annotation.Configuration;
 public class NonceComponentConfiguration {
 
     // PostgresNonceRepository 通过 @Repository 自动扫描
-    // RedisDistributedLockManager 仅在 nonce.redis-enabled=true 时通过条件装配创建（可选）
 
     /**
      * ChainClient 实现（业务方需要替换为自己的实现）
@@ -33,10 +32,8 @@ public class NonceComponentConfiguration {
     @Bean
     public NonceConfig nonceConfig(NonceProperties properties) {
         return new NonceConfig(
-                properties.isRedisEnabled(),
                 properties.getLockTtl(),
-                properties.getReservedTimeout(),
-                properties.isDegradeOnRedisFailure()
+                properties.getReservedTimeout()
         );
     }
 

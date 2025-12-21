@@ -3,26 +3,24 @@ package com.work.nonce.core.model;
 import java.time.Instant;
 
 /**
- * 对应 README 中的 submitter_nonce_state 表。
- * 
+ * 对应数据库中的 signer_nonce_state 表。
+ *
  * 注意：
- * 1. submitter是不可变字段，创建后不能修改
- * 2. lastChainNonce、nextLocalNonce、updatedAt是可变字段，会在状态更新时修改
+ * 1. signer 是不可变字段，创建后不能修改
+ * 2. nextLocalNonce、updatedAt 是可变字段，会在状态更新时修改
  * 3. 此对象主要在事务中使用，线程安全性由事务保证
  */
-public class SubmitterNonceState {
+public class SignerNonceState {
 
-    private static final long INITIAL_LAST_CHAIN_NONCE = -1L;
     private static final long INITIAL_NEXT_LOCAL_NONCE = 0L;
 
-    private final String submitter;
-    private long lastChainNonce;
+    private final String signer;
     private long nextLocalNonce;
     private Instant updatedAt;
 
-    public SubmitterNonceState(String submitter, long lastChainNonce, long nextLocalNonce, Instant updatedAt) {
-        if (submitter == null || submitter.trim().isEmpty()) {
-            throw new IllegalArgumentException("submitter 不能为空");
+    public SignerNonceState(String signer, long nextLocalNonce, Instant updatedAt) {
+        if (signer == null || signer.trim().isEmpty()) {
+            throw new IllegalArgumentException("signer 不能为空");
         }
         if (updatedAt == null) {
             throw new IllegalArgumentException("updatedAt 不能为null");
@@ -30,31 +28,21 @@ public class SubmitterNonceState {
         if (nextLocalNonce < 0) {
             throw new IllegalArgumentException("nextLocalNonce 不能为负数");
         }
-        
-        this.submitter = submitter;
-        this.lastChainNonce = lastChainNonce;
+
+        this.signer = signer;
         this.nextLocalNonce = nextLocalNonce;
         this.updatedAt = updatedAt;
     }
 
     /**
-     * 创建初始状态的SubmitterNonceState
+     * 创建初始状态的 SignerNonceState。
      */
-    public static SubmitterNonceState init(String submitter) {
-        return new SubmitterNonceState(submitter, INITIAL_LAST_CHAIN_NONCE, 
-                                      INITIAL_NEXT_LOCAL_NONCE, Instant.now());
+    public static SignerNonceState init(String signer) {
+        return new SignerNonceState(signer, INITIAL_NEXT_LOCAL_NONCE, Instant.now());
     }
 
-    public String getSubmitter() {
-        return submitter;
-    }
-
-    public long getLastChainNonce() {
-        return lastChainNonce;
-    }
-
-    public void setLastChainNonce(long lastChainNonce) {
-        this.lastChainNonce = lastChainNonce;
+    public String getSigner() {
+        return signer;
     }
 
     public long getNextLocalNonce() {
@@ -81,12 +69,12 @@ public class SubmitterNonceState {
 
     @Override
     public String toString() {
-        return "SubmitterNonceState{" +
-                "submitter='" + submitter + '\'' +
-                ", lastChainNonce=" + lastChainNonce +
+        return "SignerNonceState{" +
+                "signer='" + signer + '\'' +
                 ", nextLocalNonce=" + nextLocalNonce +
                 ", updatedAt=" + updatedAt +
                 '}';
     }
 }
+
 

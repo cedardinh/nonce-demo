@@ -8,22 +8,22 @@ package com.work.nonce.demo.web.dto;
  */
 public class NonceResponse<T extends NonceResponsePayload> {
 
-    private final String submitter;
+    private final String signer;
     private final long nonce;
     private final T payload;
 
-    private NonceResponse(String submitter, long nonce, T payload) {
-        this.submitter = submitter;
+    private NonceResponse(String signer, long nonce, T payload) {
+        this.signer = signer;
         this.nonce = nonce;
         this.payload = payload;
     }
 
-    public static <T extends NonceResponsePayload> NonceResponse<T> of(String submitter, long nonce, T payload) {
-        return new NonceResponse<>(submitter, nonce, payload);
+    public static <T extends NonceResponsePayload> NonceResponse<T> of(String signer, long nonce, T payload) {
+        return new NonceResponse<>(signer, nonce, payload);
     }
 
-    public String getSubmitter() {
-        return submitter;
+    public String getSigner() {
+        return signer;
     }
 
     public long getNonce() {

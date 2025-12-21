@@ -25,10 +25,10 @@ public class NonceController {
         this.nonceDemoService = nonceDemoService;
     }
 
-    @PostMapping("/{submitter}")
-    public ResponseEntity<NonceResponse<SimpleNoncePayloadFF>> allocateAndExecute(@PathVariable String submitter,
+    @PostMapping("/{signer}")
+    public ResponseEntity<NonceResponse<SimpleNoncePayloadFF>> allocateAndExecute(@PathVariable String signer,
                                                                                   @Validated @RequestBody NonceRequest request) {
-        NonceResponse<SimpleNoncePayloadFF> response = nonceDemoService.refund(submitter, request.getPayload());
+        NonceResponse<SimpleNoncePayloadFF> response = nonceDemoService.refund(signer, request.getPayload());
         return ResponseEntity.ok(response);
     }
 }

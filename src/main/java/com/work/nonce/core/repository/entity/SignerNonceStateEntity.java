@@ -7,47 +7,36 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.Instant;
 
 /**
- * Submitter nonce 状态表实体类
+ * signer nonce 状态表实体类。
  */
-@TableName("submitter_nonce_state")
-public class SubmitterNonceStateEntity {
+@TableName("signer_nonce_state")
+public class SignerNonceStateEntity {
 
-    @TableId(type = IdType.INPUT)
-    private String submitter;
-    
-    private Long lastChainNonce;
-    
+    @TableId(value = "signer", type = IdType.INPUT)
+    private String signer;
+
     private Long nextLocalNonce;
-    
+
     private Instant updatedAt;
-    
+
     private Instant createdAt;
 
-    public SubmitterNonceStateEntity() {
+    public SignerNonceStateEntity() {
     }
 
-    public SubmitterNonceStateEntity(String submitter, Long lastChainNonce, Long nextLocalNonce, Instant updatedAt, Instant createdAt) {
-        this.submitter = submitter;
-        this.lastChainNonce = lastChainNonce;
+    public SignerNonceStateEntity(String signer, Long nextLocalNonce, Instant updatedAt, Instant createdAt) {
+        this.signer = signer;
         this.nextLocalNonce = nextLocalNonce;
         this.updatedAt = updatedAt;
         this.createdAt = createdAt;
     }
 
-    public String getSubmitter() {
-        return submitter;
+    public String getSigner() {
+        return signer;
     }
 
-    public void setSubmitter(String submitter) {
-        this.submitter = submitter;
-    }
-
-    public Long getLastChainNonce() {
-        return lastChainNonce;
-    }
-
-    public void setLastChainNonce(Long lastChainNonce) {
-        this.lastChainNonce = lastChainNonce;
+    public void setSigner(String signer) {
+        this.signer = signer;
     }
 
     public Long getNextLocalNonce() {
@@ -74,4 +63,5 @@ public class SubmitterNonceStateEntity {
         this.createdAt = createdAt;
     }
 }
+
 

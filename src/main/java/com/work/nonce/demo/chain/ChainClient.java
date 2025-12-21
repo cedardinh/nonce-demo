@@ -10,12 +10,12 @@ public interface ChainClient {
     /**
      * 发送交易到链上并返回 txHash。
      */
-    String sendTransaction(String submitter, long nonce, String payload);
+    String sendTransaction(String signer, long nonce, String payload);
 
     /**
      * 查询链上最新 nonce（可选，用于监控或恢复示例）。
      */
-    default BigInteger queryLatestNonce(String submitter) throws Exception {
+    default BigInteger queryLatestNonce(String signer) throws Exception {
         return new BigInteger("-1");
     }
 }

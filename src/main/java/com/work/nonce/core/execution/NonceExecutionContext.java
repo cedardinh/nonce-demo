@@ -4,22 +4,22 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 传递给业务 handler 的上下文，仅包含 submitter、nonce 以及自定义元数据。
+ * 传递给业务 handler 的上下文，仅包含 signer、nonce 以及自定义元数据。
  * 业务若需额外依赖，可自行注入并在 handler 闭包中使用，避免组件与具体实现耦合。
  */
 public class NonceExecutionContext {
 
-    private final String submitter;
+    private final String signer;
     private final long nonce;
     private final Map<String, Object> attributes = new HashMap<>();
 
-    public NonceExecutionContext(String submitter, long nonce) {
-        this.submitter = submitter;
+    public NonceExecutionContext(String signer, long nonce) {
+        this.signer = signer;
         this.nonce = nonce;
     }
 
-    public String getSubmitter() {
-        return submitter;
+    public String getSigner() {
+        return signer;
     }
 
     public long getNonce() {
@@ -48,7 +48,7 @@ public class NonceExecutionContext {
     @Override
     public String toString() {
         return "NonceExecutionContext{" +
-                "submitter='" + submitter + '\'' +
+                "signer='" + signer + '\'' +
                 ", nonce=" + nonce +
                 '}';
     }
