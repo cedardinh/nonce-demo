@@ -3,6 +3,10 @@ package com.work.nonce.demo.config;
 import com.work.nonce.core.NonceComponent;
 import com.work.nonce.core.config.NonceConfig;
 import com.work.nonce.core.execution.NonceExecutionTemplate;
+import com.work.nonce.core.execution.AutoDegradingSignerExecutor;
+import com.work.nonce.core.execution.DirectSignerExecutor;
+import com.work.nonce.core.execution.SignerExecutor;
+import com.work.nonce.core.execution.WorkerQueueSignerExecutor;
 import com.work.nonce.core.service.NonceService;
 import com.work.nonce.demo.chain.ChainClient;
 import com.work.nonce.demo.chain.MockChainClient;
@@ -53,9 +57,45 @@ public class NonceComponentConfiguration {
     }
 
     @Bean
+    public SignerExecutor signerExecutor(NonceProperties properties) {
+        // basic / worker-queue / auto 统一由 SignerExecutor 抽象实现
+        String mode = properties.getMode() == null ? "basic" : properties.getMode().trim().toLowerCase();
+        SignerExecutor basic = new DirectSignerExecutor();
+
+        switch (mode) {
+            case "worker-queue": {
+                return new WorkerQueueSignerExecutor(
+                        Math.max(1, properties.getWorkerCount()),
+                        Math.max(1, properties.getWorkerQueueCapacity()),
+                        properties.getWorkerQueueDispatchTimeout(),
+                        "nonce-worker-"
+                );
+            }
+            case "auto": {
+                SignerExecutor worker = new WorkerQueueSignerExecutor(
+                        Math.max(1, properties.getWorkerCount()),
+                        Math.max(1, properties.getWorkerQueueCapacity()),
+                        properties.getWorkerQueueDispatchTimeout(),
+                        "nonce-worker-"
+                );
+                return new AutoDegradingSignerExecutor(
+                        worker,
+                        basic,
+                        Math.max(1, properties.getWorkerQueueDegradeFailThreshold()),
+                        properties.getWorkerQueueDegradeOpenDuration()
+                );
+            }
+            case "basic":
+            default:
+                return basic;
+        }
+    }
+
+    @Bean
     public NonceComponent nonceComponent(NonceExecutionTemplate template,
-                                         NonceService nonceService) {
-        return new NonceComponent(template, nonceService);
+                                         NonceService nonceService,
+                                         SignerExecutor signerExecutor) {
+        return new NonceComponent(template, nonceService, signerExecutor);
     }
 }
 

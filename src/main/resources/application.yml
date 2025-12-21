@@ -41,3 +41,10 @@ nonce:
   reserved-timeout: 30s
   lease-ttl: 10s
   node-id: ""
+  # basic | worker-queue | auto
+  mode: basic
+  worker-count: 8
+  worker-queue-capacity: 2000
+  worker-queue-dispatch-timeout: 3s
+  worker-queue-degrade-fail-threshold: 5
+  worker-queue-degrade-open-duration: 10s
