@@ -137,6 +137,20 @@ public class NonceService {
     }
 
     /**
+     * 标记 nonce 对应的交易已提交（已拿到 txHash），但尚未收到 receipt。
+     * <p>
+     * 注意：这一步不会把 nonce 标记为 USED。nonce 是否真正被链消耗，以 receipt 为准。
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED, timeout = TRANSACTION_TIMEOUT_SECONDS)
+    public void markSubmitted(String submitter, long nonce, String txHash) {
+        requireNonEmpty(submitter, "submitter");
+        requireNonEmpty(txHash, "txHash");
+        requireNonNegative(nonce, "nonce");
+
+        nonceRepository.markSubmitted(submitter, nonce, txHash);
+    }
+
+    /**
      * 标记 nonce 为可回收
      * <p>
      * 注意：此方法必须在事务中执行，确保状态更新的原子性

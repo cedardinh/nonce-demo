@@ -9,7 +9,9 @@ public enum NonceAllocationStatus {
      */
     RESERVED,
     /**
-     * 业务流程及链上调用均成功，该 nonce 永久占⽤。
+     * nonce 已被链消耗（receipt 已出现），该 nonce 永久占用。
+     *
+     * 注意：USED 不等价于“业务成功”。在 EVM 中交易可能 revert（receipt.success=false），但 nonce 仍会被消耗。
      */
     USED,
     /**

@@ -56,3 +56,6 @@ nonce:
   lock-ttl: 10s
   reserved-timeout: 30s
   degrade-on-redis-failure: true
+  # receipt-driven USED: 后台轮询回执，回执出现后才把 nonce 标记为 USED
+  receipt-poll-interval: 2s
+  receipt-poll-batch-size: 200

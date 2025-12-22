@@ -16,6 +16,16 @@ public class NonceProperties {
     private Duration reservedTimeout = Duration.ofSeconds(30);
     private boolean degradeOnRedisFailure = true;
 
+    /**
+     * receipt 轮询间隔（demo 用）。生产环境应结合节点能力与吞吐做调优。
+     */
+    private Duration receiptPollInterval = Duration.ofSeconds(2);
+
+    /**
+     * 每次轮询最多处理多少条已提交记录
+     */
+    private int receiptPollBatchSize = 200;
+
     public boolean isRedisEnabled() {
         return redisEnabled;
     }
@@ -46,6 +56,22 @@ public class NonceProperties {
 
     public void setDegradeOnRedisFailure(boolean degradeOnRedisFailure) {
         this.degradeOnRedisFailure = degradeOnRedisFailure;
+    }
+
+    public Duration getReceiptPollInterval() {
+        return receiptPollInterval;
+    }
+
+    public void setReceiptPollInterval(Duration receiptPollInterval) {
+        this.receiptPollInterval = receiptPollInterval;
+    }
+
+    public int getReceiptPollBatchSize() {
+        return receiptPollBatchSize;
+    }
+
+    public void setReceiptPollBatchSize(int receiptPollBatchSize) {
+        this.receiptPollBatchSize = receiptPollBatchSize;
     }
 }
 

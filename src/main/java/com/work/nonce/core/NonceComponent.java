@@ -37,6 +37,14 @@ public class NonceComponent {
         nonceService.markUsed(submitter, nonce, txHash);
     }
 
+    /**
+     * 标记“已提交到链上并拿到 txHash”，但未 receipt。
+     * 推荐由内部模板/后台 receipt 轮询模块调用，业务一般无需手动调用。
+     */
+    public void markSubmitted(String submitter, long nonce, String txHash) {
+        nonceService.markSubmitted(submitter, nonce, txHash);
+    }
+
     public void markRecyclable(String submitter, long nonce, String reason) {
         nonceService.markRecyclable(submitter, nonce, reason);
     }

@@ -217,6 +217,35 @@ public class PostgresNonceRepository implements NonceRepository {
     }
 
     @Override
+    public void markSubmitted(String submitter, long nonce, String txHash) {
+        requireNonEmpty(submitter, "submitter");
+        requireNonEmpty(txHash, "txHash");
+
+        NonceAllocationEntity entity = allocationMapper.findBySubmitterAndNonce(submitter, nonce);
+        if (entity == null) {
+            throw new NonceException("未找到 allocation: " + submitter + "#" + nonce);
+        }
+
+        // 允许幂等：如果已绑定同样 txHash，直接返回
+        if (txHash.equals(entity.getTxHash()) && NonceAllocationStatus.RESERVED.name().equals(entity.getStatus())) {
+            return;
+        }
+
+        // 不能对 USED / RECYCLABLE 做 submitted（说明已经终态或已回收）
+        if (NonceAllocationStatus.USED.name().equals(entity.getStatus())) {
+            throw new NonceException("nonce 已使用，不能标记为 submitted: " + submitter + "#" + nonce);
+        }
+        if (NonceAllocationStatus.RECYCLABLE.name().equals(entity.getStatus())) {
+            throw new NonceException("nonce 已回收，不能标记为 submitted: " + submitter + "#" + nonce);
+        }
+
+        int updated = allocationMapper.markSubmitted(submitter, nonce, txHash, Instant.now());
+        if (updated == 0) {
+            throw new NonceException("标记 nonce 为 submitted 失败: " + submitter + "#" + nonce);
+        }
+    }
+
+    @Override
     public void markRecyclable(String submitter, long nonce, String reason) {
         requireNonEmpty(submitter, "submitter");
 
@@ -247,6 +276,19 @@ public class PostgresNonceRepository implements NonceRepository {
         if (updated == 0) {
             throw new NonceException("标记 nonce 为 RECYCLABLE 失败: " + submitter + "#" + nonce);
         }
+    }
+
+    @Override
+    public List<NonceAllocation> listSubmittedReservations(int limit) {
+        if (limit <= 0) {
+            return new ArrayList<>();
+        }
+        List<NonceAllocationEntity> entities = allocationMapper.listSubmittedReservations(limit);
+        List<NonceAllocation> result = new ArrayList<>(entities.size());
+        for (NonceAllocationEntity e : entities) {
+            result.add(convertToAllocation(e));
+        }
+        return result;
     }
 
     /**

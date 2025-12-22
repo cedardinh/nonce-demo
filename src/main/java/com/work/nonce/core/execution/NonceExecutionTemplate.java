@@ -96,8 +96,9 @@ public class NonceExecutionTemplate {
     private void updateAllocationStatus(String submitter, NonceAllocation allocation, NonceExecutionResult result) {
         switch (result.getOutcome()) {
             case SUCCESS:
-                // 业务成功，标记为已使用
-                nonceService.markUsed(submitter, allocation.getNonce(), result.getTxHash());
+                // 仅代表“已拿到 txHash 并成功提交”，不代表 receipt/finality。
+                // nonce 是否真正被链消耗，以 receipt 为准（由后台 receipt 轮询/确认模块驱动 markUsed）
+                nonceService.markSubmitted(submitter, allocation.getNonce(), result.getTxHash());
                 break;
 
             case NON_RETRYABLE_FAILURE:
