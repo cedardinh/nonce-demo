@@ -44,6 +44,8 @@ public class ReceiptFinalizer {
                     now,
                     now
             );
+            // 初始化 confirmations 追踪字段（可为空，不影响主流程）
+            receiptMapper.updateConfirmations(receipt.getTxHash(), 1, false, null, now);
         } catch (Exception e) {
             log.warn("Persist tx_receipts failed (will continue markUsed). txHash={} err={}",
                     receipt.getTxHash(), e.getMessage());

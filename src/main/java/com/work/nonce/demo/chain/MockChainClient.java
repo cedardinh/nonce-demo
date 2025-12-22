@@ -55,6 +55,11 @@ public class MockChainClient implements ChainClient {
     }
 
     @Override
+    public long queryLatestBlockNumber() {
+        return Math.max(0L, blockNumber.get());
+    }
+
+    @Override
     public long queryLatestNonce(String submitter) {
         return latestNonce.getOrDefault(submitter, -1L);
     }

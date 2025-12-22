@@ -4,8 +4,11 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.work.nonce.core.repository.entity.TransactionReceiptEntity;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * tx_receipts 表 Mapper（最小 upsert）。
@@ -39,6 +42,21 @@ public interface TransactionReceiptMapper extends BaseMapper<TransactionReceiptE
                @Param("success") Boolean success,
                @Param("updatedAt") Instant updatedAt,
                @Param("createdAt") Instant createdAt);
+
+    @Select("SELECT tx_hash, submitter, nonce, block_number, block_hash, success, confirmations, confirmed, confirmed_at, updated_at, created_at " +
+            "FROM tx_receipts " +
+            "WHERE confirmed IS DISTINCT FROM true " +
+            "ORDER BY updated_at ASC " +
+            "LIMIT #{limit}")
+    List<TransactionReceiptEntity> listUnconfirmed(@Param("limit") int limit);
+
+    @Update("UPDATE tx_receipts SET confirmations = #{confirmations}, confirmed = #{confirmed}, confirmed_at = #{confirmedAt}, updated_at = #{updatedAt} " +
+            "WHERE tx_hash = #{txHash}")
+    int updateConfirmations(@Param("txHash") String txHash,
+                            @Param("confirmations") Integer confirmations,
+                            @Param("confirmed") Boolean confirmed,
+                            @Param("confirmedAt") Instant confirmedAt,
+                            @Param("updatedAt") Instant updatedAt);
 }
 
 

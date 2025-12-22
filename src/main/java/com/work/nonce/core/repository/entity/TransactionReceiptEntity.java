@@ -29,6 +29,21 @@ public class TransactionReceiptEntity {
 
     private Boolean success;
 
+    /**
+     * 当前确认数（基于 latestBlockNumber - blockNumber + 1 计算）
+     */
+    private Integer confirmations;
+
+    /**
+     * 是否达到最终确定阈值
+     */
+    private Boolean confirmed;
+
+    /**
+     * 达到最终确定时刻
+     */
+    private Instant confirmedAt;
+
     private Instant updatedAt;
 
     private Instant createdAt;
@@ -79,6 +94,30 @@ public class TransactionReceiptEntity {
 
     public void setSuccess(Boolean success) {
         this.success = success;
+    }
+
+    public Integer getConfirmations() {
+        return confirmations;
+    }
+
+    public void setConfirmations(Integer confirmations) {
+        this.confirmations = confirmations;
+    }
+
+    public Boolean getConfirmed() {
+        return confirmed;
+    }
+
+    public void setConfirmed(Boolean confirmed) {
+        this.confirmed = confirmed;
+    }
+
+    public Instant getConfirmedAt() {
+        return confirmedAt;
+    }
+
+    public void setConfirmedAt(Instant confirmedAt) {
+        this.confirmedAt = confirmedAt;
     }
 
     public Instant getUpdatedAt() {

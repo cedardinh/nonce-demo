@@ -56,6 +56,18 @@ nonce:
   lock-ttl: 10s
   reserved-timeout: 30s
   degrade-on-redis-failure: true
-  # receipt-driven USED: 后台轮询回执，回执出现后才把 nonce 标记为 USED
+
+# 链客户端配置
+chain:
+  mode: mock
+  rpc-url: http://localhost:8545
+
+# 参考 firefly 的 confirmations 配置
+confirmations:
+  required: 20
+  stale-receipt-timeout: 1m
+  receipt-workers: 10
+  fetch-receipt-upon-entry: false
   receipt-poll-interval: 2s
-  receipt-poll-batch-size: 200
+  confirmations-poll-interval: 2s
+  batch-size: 200

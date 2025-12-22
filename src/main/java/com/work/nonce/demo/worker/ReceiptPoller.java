@@ -4,15 +4,22 @@ import com.work.nonce.core.model.NonceAllocation;
 import com.work.nonce.core.repository.NonceRepository;
 import com.work.nonce.demo.chain.ChainClient;
 import com.work.nonce.demo.chain.TransactionReceipt;
-import com.work.nonce.demo.config.NonceProperties;
+import com.work.nonce.demo.config.ConfirmationsProperties;
 import com.work.nonce.demo.service.ReceiptFinalizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 最小闭环：后台轮询 receipt，receipt 出现后才把 nonce 标记为 USED（链已消耗）。
@@ -27,47 +34,89 @@ public class ReceiptPoller {
 
     private final NonceRepository nonceRepository;
     private final ChainClient chainClient;
-    private final NonceProperties nonceProperties;
+    private final ConfirmationsProperties confirmationsProperties;
     private final ReceiptFinalizer receiptFinalizer;
+    private ExecutorService executor;
+    private final AtomicBoolean running = new AtomicBoolean(false);
 
     public ReceiptPoller(NonceRepository nonceRepository,
                          ChainClient chainClient,
-                         NonceProperties nonceProperties,
+                         ConfirmationsProperties confirmationsProperties,
                          ReceiptFinalizer receiptFinalizer) {
         this.nonceRepository = nonceRepository;
         this.chainClient = chainClient;
-        this.nonceProperties = nonceProperties;
+        this.confirmationsProperties = confirmationsProperties;
         this.receiptFinalizer = receiptFinalizer;
     }
 
-    @Scheduled(fixedDelayString = "#{@nonceProperties.receiptPollInterval.toMillis()}")
+    @PostConstruct
+    public void init() {
+        int workers = Math.max(1, confirmationsProperties.getReceiptWorkers());
+        ThreadFactory tf = r -> {
+            Thread t = new Thread(r);
+            t.setName("receipt-worker-" + t.getId());
+            t.setDaemon(true);
+            return t;
+        };
+        this.executor = Executors.newFixedThreadPool(workers, tf);
+    }
+
+    @PreDestroy
+    public void destroy() {
+        if (executor != null) {
+            executor.shutdownNow();
+        }
+    }
+
+    @Scheduled(fixedDelayString = "#{@confirmationsProperties.receiptPollInterval.toMillis()}")
     public void pollReceipts() {
-        int limit = Math.max(1, nonceProperties.getReceiptPollBatchSize());
-        List<NonceAllocation> submitted = nonceRepository.listSubmittedReservations(limit);
-        if (submitted.isEmpty()) {
+        if (!running.compareAndSet(false, true)) {
             return;
         }
+        try {
+            int limit = Math.max(1, confirmationsProperties.getBatchSize());
+            List<NonceAllocation> submitted = nonceRepository.listSubmittedReservations(limit);
+            if (submitted.isEmpty()) {
+                return;
+            }
 
-        for (NonceAllocation a : submitted) {
-            String txHash = a.getTxHash();
-            if (txHash == null || txHash.trim().isEmpty()) {
-                continue;
+            Instant staleBefore = Instant.now().minus(confirmationsProperties.getStaleReceiptTimeout());
+            boolean fetchUponEntry = confirmationsProperties.isFetchReceiptUponEntry();
+
+            for (NonceAllocation a : submitted) {
+                if (!fetchUponEntry && a.getUpdatedAt().isAfter(staleBefore)) {
+                    continue;
+                }
+                String txHash = a.getTxHash();
+                if (txHash == null || txHash.trim().isEmpty()) {
+                    continue;
+                }
+
+                executor.execute(() -> {
+                    Optional<TransactionReceipt> receiptOpt;
+                    try {
+                        receiptOpt = chainClient.getTransactionReceipt(txHash);
+                    } catch (Exception e) {
+                        log.warn("Receipt query failed. submitter={} nonce={} txHash={} err={}",
+                                a.getSubmitter(), a.getNonce(), txHash, e.getMessage());
+                        return;
+                    }
+                    if (!receiptOpt.isPresent()) {
+                        return;
+                    }
+                    TransactionReceipt receipt = receiptOpt.get();
+                    try {
+                        receiptFinalizer.finalizeReceipt(a, receipt);
+                        log.info("Receipt arrived. submitter={} nonce={} txHash={} blockNumber={} success={}",
+                                a.getSubmitter(), a.getNonce(), txHash, receipt.getBlockNumber(), receipt.isSuccess());
+                    } catch (Exception e) {
+                        log.warn("Finalize receipt failed. submitter={} nonce={} txHash={} err={}",
+                                a.getSubmitter(), a.getNonce(), txHash, e.getMessage());
+                    }
+                });
             }
-            Optional<TransactionReceipt> receiptOpt = chainClient.getTransactionReceipt(txHash);
-            if (!receiptOpt.isPresent()) {
-                continue;
-            }
-            TransactionReceipt receipt = receiptOpt.get();
-            try {
-                // receipt 出现 => nonce 已被链消耗 => 落库 receipt + 标记 USED
-                receiptFinalizer.finalizeReceipt(a, receipt);
-                log.info("Receipt arrived. submitter={} nonce={} txHash={} blockNumber={} success={}",
-                        a.getSubmitter(), a.getNonce(), txHash, receipt.getBlockNumber(), receipt.isSuccess());
-            } catch (Exception e) {
-                // 幂等/并发可能导致重复标记，这里只打日志，不让 poller 停止
-                log.warn("Failed to markUsed after receipt. submitter={} nonce={} txHash={} err={}",
-                        a.getSubmitter(), a.getNonce(), txHash, e.getMessage());
-            }
+        } finally {
+            running.set(false);
         }
     }
 }

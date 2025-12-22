@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS tx_receipts (
   block_number BIGINT NOT NULL,
   block_hash   TEXT NOT NULL,
   success      BOOLEAN NOT NULL,
+  confirmations INT,
+  confirmed    BOOLEAN,
+  confirmed_at TIMESTAMP,
   updated_at   TIMESTAMP NOT NULL,
   created_at   TIMESTAMP NOT NULL
 );

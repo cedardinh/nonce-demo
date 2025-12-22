@@ -18,6 +18,14 @@ public interface ChainClient {
     Optional<TransactionReceipt> getTransactionReceipt(String txHash);
 
     /**
+     * 查询最新区块号，用于 confirmations 计算。
+     * 返回 -1 表示该实现不支持。
+     */
+    default long queryLatestBlockNumber() {
+        return -1L;
+    }
+
+    /**
      * 查询链上最新 nonce（可选，用于监控或恢复示例）。
      */
     default long queryLatestNonce(String submitter) {
